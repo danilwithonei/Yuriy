@@ -1,10 +1,11 @@
 import asyncio
 import os
 import requests
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,53 +21,65 @@ bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
 # Временное хранилище активных дел пользователей
-# В продакшене лучше использовать Redis или сохранять state в БД
 active_cases = {}
 
 @dp.message(CommandStart())
 async def send_welcome(message: types.Message):
-    # При команде /start сбрасываем текущее активное дело пользователя
     active_cases.pop(message.from_user.id, None)
     await message.answer(
         "Здравствуйте! Я ИИ-ассистент юриста.\n\n"
         "Опишите, пожалуйста, вашу юридическую проблему, и я помогу вам составить заявку для нашего специалиста."
     )
 
+@dp.callback_query(F.data.startswith("confirm_"))
+async def process_confirm(callback: types.CallbackQuery):
+    case_id = int(callback.data.split("_")[1])
+    
+    try:
+        response = requests.post(f"{API_URL}/confirm", json={"case_id": case_id})
+        response.raise_for_status()
+        
+        await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопку
+        await callback.message.answer("✅ <b>Ваша заявка успешно сформирована и передана юристу! Ожидайте ответа.</b>")
+        active_cases.pop(callback.from_user.id, None)
+        await callback.answer()
+
+    except Exception as e:
+        print(f"Error confirming case: {e}")
+        await callback.answer("Ошибка при подтверждении.", show_alert=True)
+
 @dp.message()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
     text = message.text
 
-    payload = {
-        "user_id": user_id,
-        "message": text
-    }
-    
-    # Если у пользователя уже есть активное дело в этой сессии, добавляем case_id
+    payload = {"user_id": user_id, "message": text}
     if user_id in active_cases:
         payload["case_id"] = active_cases[user_id]
 
     try:
-        # Отправляем сообщение на наш FastAPI бэкенд
         response = requests.post(f"{API_URL}/chat", json=payload)
         response.raise_for_status()
         data = response.json()
         
-        # Сохраняем case_id для продолжения диалога
         active_cases[user_id] = data["case_id"]
         
-        # Отправляем ответ ИИ пользователю
-        await message.answer(data["response"])
+        ai_response = data["response"]
         
-        # Если статус изменился на 'ready' или 'researching', значит заявка сформирована
-        if data["status"] in ["ready", "researching"]:
-            await message.answer("✅ <b>Ваша заявка успешно сформирована и передана юристу! Ожидайте ответа.</b>")
-            # Сбрасываем case_id, чтобы следующее сообщение создало новую заявку
-            active_cases.pop(user_id, None)
+        # Если в ответе ИИ есть призыв к подтверждению, добавляем кнопку
+        if "подтвердить отправку" in ai_response.lower():
+            builder = InlineKeyboardBuilder()
+            builder.row(types.InlineKeyboardButton(
+                text="🚀 Подтвердить отправку", 
+                callback_data=f"confirm_{data['case_id']}")
+            )
+            await message.answer(ai_response, reply_markup=builder.as_markup())
+        else:
+            await message.answer(ai_response)
 
     except Exception as e:
         print(f"Error communicating with backend: {e}")
-        await message.answer("Извините, произошла техническая ошибка при связи с сервером. Попробуйте позже.")
+        await message.answer("Извините, произошла техническая ошибка.")
 
 async def main():
     print("Запуск Telegram бота-приемщика...")

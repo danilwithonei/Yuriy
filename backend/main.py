@@ -51,11 +51,33 @@ def run_research_background(case_id: int, config: dict):
             session.add(current_case)
             session.commit()
 
+class ConfirmRequest(BaseModel):
+    case_id: int
+
+@app.post("/confirm")
+def confirm_case(request: ConfirmRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+    case = session.get(Case, request.case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    
+    config = {"configurable": {"thread_id": str(request.case_id)}}
+    
+    # 1. Обновляем состояние графа вручную
+    app_graph.update_state(config, {"is_confirmed": True})
+    
+    # 2. Меняем статус и запускаем исследование в фоне
+    case.status = "researching"
+    session.add(case)
+    session.commit()
+    
+    background_tasks.add_task(run_research_background, request.case_id, config)
+    
+    return {"status": "researching"}
+
 @app.post("/chat")
-def chat(request: ChatRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
+def chat(request: ChatRequest, session: Session = Depends(get_session)):
     # 1. Get or create case
     if not request.case_id:
-        # For simplicity, ensure user exists or create dummy
         user = session.exec(select(User).where(User.id == request.user_id)).first()
         if not user:
             user = User(id=request.user_id, username=f"user_{request.user_id}", role="client")
@@ -79,7 +101,7 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks, session: Sessi
     session.add(msg)
     session.commit()
     
-    # 3. Run LangGraph (it will pause before 'research' if confirmed)
+    # 3. Run LangGraph (it will stop after intake because is_confirmed is False)
     config = {"configurable": {"thread_id": str(case_id)}}
     input_state = {
         "messages": [HumanMessage(content=request.message)],
@@ -92,25 +114,12 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks, session: Sessi
     ai_msg_content = output["messages"][-1].content
     ai_msg = Message(case_id=case_id, sender_role="ai_intake", content=ai_msg_content)
     session.add(ai_msg)
-    
-    # 5. Check if the graph paused before research
-    current_case = session.get(Case, case_id)
-    state = app_graph.get_state(config)
-    
-    if state.next and "research" in state.next:
-        current_case.status = "researching"
-        background_tasks.add_task(run_research_background, case_id, config)
-    elif output.get("case_file"): # Fallback just in case
-        current_case.case_file = output["case_file"]
-        current_case.status = "ready"
-        
-    session.add(current_case)
     session.commit()
     
     return {
         "case_id": case_id,
         "response": ai_msg_content,
-        "status": current_case.status
+        "status": case.status
     }
 
 @app.get("/cases", response_model=List[Case])

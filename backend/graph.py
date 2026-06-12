@@ -18,7 +18,7 @@ class AgentState(TypedDict):
 
 from research import perform_legal_research, analyze_case_intake
 from langchain_core.prompts import ChatPromptTemplate
-from prompts import INTAKE_SYSTEM_PROMPT, COMPILER_PROMPT, INTENT_EVALUATION_PROMPT
+from prompts import INTAKE_SYSTEM_PROMPT, COMPILER_PROMPT
 
 # Используем OpenAI-совместимый эндпоинт Aliyun MaaS
 llm = ChatOpenAI(
@@ -33,19 +33,13 @@ def intake_node(state: AgentState):
     
     response = llm.invoke([system_msg] + state["messages"])
     
-    # Интеллектуальное определение намерения пользователя
-    transcript = "\n".join([f"{m.type}: {m.content}" for m in state["messages"]])
-    
-    eval_prompt = ChatPromptTemplate.from_template(INTENT_EVALUATION_PROMPT)
-    eval_chain = eval_prompt | llm
-    eval_result = eval_chain.invoke({"transcript": transcript})
-    
-    is_confirmed = "TRUE" in eval_result.content.upper()
+    # Теперь мы не определяем согласие автоматически.
+    # Флаг is_confirmed будет установлен вручную через API при нажатии кнопки.
         
-    return {"messages": [response], "is_confirmed": is_confirmed}
+    return {"messages": [response]}
 
 def should_continue(state: AgentState):
-    if state["is_confirmed"]:
+    if state.get("is_confirmed", False):
         return "research"
     return END
 
