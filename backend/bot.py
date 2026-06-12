@@ -1,11 +1,12 @@
 import asyncio
 import os
-import requests
+import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.chat_action import ChatActionSender
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,8 +37,9 @@ async def process_confirm(callback: types.CallbackQuery):
     case_id = int(callback.data.split("_")[1])
     
     try:
-        response = requests.post(f"{API_URL}/confirm", json={"case_id": case_id})
-        response.raise_for_status()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{API_URL}/confirm", json={"case_id": case_id}) as response:
+                response.raise_for_status()
         
         await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопку
         await callback.message.answer("✅ <b>Ваша заявка успешно сформирована и передана юристу! Ожидайте ответа.</b>")
@@ -58,9 +60,11 @@ async def handle_message(message: types.Message):
         payload["case_id"] = active_cases[user_id]
 
     try:
-        response = requests.post(f"{API_URL}/chat", json=payload)
-        response.raise_for_status()
-        data = response.json()
+        async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
+            async with aiohttp.ClientSession() as session:
+                async with session.post(f"{API_URL}/chat", json=payload) as response:
+                    response.raise_for_status()
+                    data = await response.json()
         
         active_cases[user_id] = data["case_id"]
         
