@@ -3,6 +3,7 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+from prompts import RESEARCHER_PROMPT, QUERY_ANALYZER_PROMPT
 
 load_dotenv()
 
@@ -25,15 +26,7 @@ def perform_legal_research(query: str) -> str:
         openai_api_base="https://ws-8xsmg0t4kftupsd5.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
     )
 
-    prompt = ChatPromptTemplate.from_template("""
-    Вы — профессиональный юридический исследователь. 
-    На основе следующих результатов поиска по юридическому вопросу извлеките ключевые законы, 
-    прецеденты и процедурные шаги, применимые к делу.
-    
-    Результаты поиска: {results}
-    
-    Составьте подробный отчет на русском языке.
-    """)
+    prompt = ChatPromptTemplate.from_template(RESEARCHER_PROMPT)
     
     chain = prompt | llm
     summary = chain.invoke({"results": results})
@@ -49,14 +42,7 @@ def analyze_case_intake(transcript: str) -> str:
         openai_api_base="https://ws-8xsmg0t4kftupsd5.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
     )
 
-    prompt = ChatPromptTemplate.from_template("""
-    Проанализируйте следующую переписку между клиентом и ассистентом. 
-    Сформулируйте один четкий поисковый запрос для исследования юридической ситуации клиента.
-    
-    Переписка: {transcript}
-    
-    Верните только текст поискового запроса.
-    """)
+    prompt = ChatPromptTemplate.from_template(QUERY_ANALYZER_PROMPT)
     
     chain = prompt | llm
     query = chain.invoke({"transcript": transcript})

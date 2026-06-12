@@ -18,6 +18,7 @@ class AgentState(TypedDict):
 
 from research import perform_legal_research, analyze_case_intake
 from langchain_core.prompts import ChatPromptTemplate
+from prompts import INTAKE_SYSTEM_PROMPT, COMPILER_PROMPT
 
 # Используем OpenAI-совместимый эндпоинт Aliyun MaaS
 llm = ChatOpenAI(
@@ -28,14 +29,7 @@ llm = ChatOpenAI(
 
 
 def intake_node(state: AgentState):
-    system_msg = SystemMessage(content=(
-        "You are an AI Lawyer Intake Assistant. Your goal is to interview the client "
-        "to gather all necessary information about their legal problem. "
-        "Be empathetic, professional, and thorough. "
-        "Once you have enough information, ask the client for clear confirmation to 'submit' or 'form' the request. "
-        "If the client confirms (e.g., says 'yes, submit', 'сформировать заявку'), set the 'is_confirmed' flag. "
-        "Always respond in Russian if the user speaks Russian."
-    ))
+    system_msg = SystemMessage(content=INTAKE_SYSTEM_PROMPT)
     
     response = llm.invoke([system_msg] + state["messages"])
     
@@ -68,19 +62,7 @@ def compiler_node(state: AgentState):
     print("--- COMPILING ---")
     transcript = "\n".join([f"{m.type}: {m.content}" for m in state["messages"]])
     
-    prompt = ChatPromptTemplate.from_template("""
-    Составьте итоговое "Досье дела" на основе переписки с клиентом и результатов исследования.
-    
-    Переписка: {transcript}
-    
-    Результаты исследования: {research}
-    
-    Досье должно быть в формате Markdown, содержать:
-    1. Суть проблемы.
-    2. Ключевые факты.
-    3. Применимое законодательство (на основе исследования).
-    4. Рекомендации для юриста.
-    """)
+    prompt = ChatPromptTemplate.from_template(COMPILER_PROMPT)
     
     chain = prompt | llm
     case_file = chain.invoke({"transcript": transcript, "research": state["research_results"]})

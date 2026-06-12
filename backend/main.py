@@ -119,6 +119,7 @@ def assist_case(case_id: int, request: AssistRequest, session: Session = Depends
     # 2. Call LLM with full context
     from langchain_openai import ChatOpenAI
     from langchain_core.prompts import ChatPromptTemplate
+    from prompts import ASSISTANT_PROMPT
     
     llm = ChatOpenAI(
         model=os.getenv("LLM_MODEL", "qwen3.7-plus"),
@@ -126,20 +127,7 @@ def assist_case(case_id: int, request: AssistRequest, session: Session = Depends
         openai_api_base="https://ws-8xsmg0t4kftupsd5.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
     )
 
-    prompt = ChatPromptTemplate.from_template("""
-    Вы — специализированный ИИ-ассистент юриста. 
-    Ваша задача — помогать юристу анализировать конкретное дело.
-    
-    МАТЕРИАЛЫ ДЕЛА:
-    {case_file}
-    
-    ИСТОРИЯ ПЕРЕПИСКИ:
-    {history}
-    
-    ВОПРОС ЮРИСТА: {query}
-    
-    Отвечайте профессионально, лаконично и по существу на русском языке.
-    """)
+    prompt = ChatPromptTemplate.from_template(ASSISTANT_PROMPT)
     
     chain = prompt | llm
     response = chain.invoke({
