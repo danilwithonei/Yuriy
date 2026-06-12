@@ -27,7 +27,8 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
   const [chatMessages, setChatMessages] = useState<any[]>([]);
 
   useEffect(() => {
-    axios.get(`http://localhost:8000/cases/${id}`)
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    axios.get(`${apiUrl}/cases/${id}`)
       .then(res => {
         setData(res.data);
         const existingAssists = res.data.messages
@@ -46,7 +47,8 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
     setChatInput('');
     
     try {
-      const res = await axios.post(`http://localhost:8000/cases/${id}/assist`, { message: chatInput });
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const res = await axios.post(`${apiUrl}/cases/${id}/assist`, { message: chatInput });
       setChatMessages(prev => [...prev, { role: 'ai_case', content: res.data.response }]);
     } catch (err) {
       console.error(err);

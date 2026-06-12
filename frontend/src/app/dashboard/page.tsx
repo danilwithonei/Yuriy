@@ -17,7 +17,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    axios.get('http://localhost:8000/cases')
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    axios.get(`${apiUrl}/cases`)
       .then(res => {
         setCases(res.data);
         setLoading(false);

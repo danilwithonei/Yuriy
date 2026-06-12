@@ -17,7 +17,19 @@
 *   **Frontend:** React, Next.js, TailwindCSS, Lucide Icons.
 *   **Search API:** Tavily.
 
-## 📋 Подготовка к запуску
+## 🐳 Запуск через Docker Compose
+
+Самый простой способ запустить всю систему целиком:
+
+1.  Убедитесь, что у вас установлен Docker и Docker Compose.
+2.  Создайте `backend/.env` (см. инструкцию выше).
+3.  Выполните команду в корне проекта:
+    ```bash
+    docker-compose up --build
+    ```
+4.  Фронтенд будет доступен на `http://localhost:3000`, бэкенд на `http://localhost:8000`.
+
+## 📋 Подготовка к запуску (без Docker)
 
 ### 1. Клонирование репозитория
 ```bash
