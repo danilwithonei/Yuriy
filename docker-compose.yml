@@ -10,6 +10,20 @@ services:
       - /app/venv
     restart: always
 
+  telegram_bot:
+    build: ./backend
+    command: python bot.py
+    env_file:
+      - ./backend/.env
+    environment:
+      - API_URL=http://backend:8000
+    volumes:
+      - ./backend:/app
+      - /app/venv
+    depends_on:
+      - backend
+    restart: always
+
   frontend:
     build: ./frontend
     ports:

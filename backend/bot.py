@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-API_URL = "http://localhost:8000"
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 if not TOKEN:
     print("Ошибка: TELEGRAM_BOT_TOKEN не установлен в .env")
