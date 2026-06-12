@@ -58,8 +58,8 @@ async def handle_message(message: types.Message):
         # Отправляем ответ ИИ пользователю
         await message.answer(data["response"])
         
-        # Если статус изменился на 'ready', значит заявка сформирована
-        if data["status"] == "ready":
+        # Если статус изменился на 'ready' или 'researching', значит заявка сформирована
+        if data["status"] in ["ready", "researching"]:
             await message.answer("✅ <b>Ваша заявка успешно сформирована и передана юристу! Ожидайте ответа.</b>")
             # Сбрасываем case_id, чтобы следующее сообщение создало новую заявку
             active_cases.pop(user_id, None)

@@ -80,4 +80,4 @@ workflow.add_edge("compiler", END)
 
 from langgraph.checkpoint.memory import MemorySaver
 memory = MemorySaver()
-app_graph = workflow.compile(checkpointer=memory)
+app_graph = workflow.compile(checkpointer=memory, interrupt_before=["research"])

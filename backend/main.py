@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 from database import create_db_and_tables, get_session
@@ -34,8 +34,25 @@ def on_startup():
 def read_root():
     return {"message": "AI Lawyer API is running"}
 
+def run_research_background(case_id: int, config: dict):
+    from database import engine
+    from sqlmodel import Session
+    from models import Case
+    from graph import app_graph
+    
+    with Session(engine) as session:
+        # Продолжаем выполнение графа с прерванного места (research)
+        output = app_graph.invoke(None, config=config)
+        
+        current_case = session.get(Case, case_id)
+        if current_case and output and output.get("case_file"):
+            current_case.case_file = output["case_file"]
+            current_case.status = "ready"
+            session.add(current_case)
+            session.commit()
+
 @app.post("/chat")
-def chat(request: ChatRequest, session: Session = Depends(get_session)):
+def chat(request: ChatRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
     # 1. Get or create case
     if not request.case_id:
         # For simplicity, ensure user exists or create dummy
@@ -62,7 +79,7 @@ def chat(request: ChatRequest, session: Session = Depends(get_session)):
     session.add(msg)
     session.commit()
     
-    # 3. Run LangGraph
+    # 3. Run LangGraph (it will pause before 'research' if confirmed)
     config = {"configurable": {"thread_id": str(case_id)}}
     input_state = {
         "messages": [HumanMessage(content=request.message)],
@@ -76,13 +93,18 @@ def chat(request: ChatRequest, session: Session = Depends(get_session)):
     ai_msg = Message(case_id=case_id, sender_role="ai_intake", content=ai_msg_content)
     session.add(ai_msg)
     
-    # 5. If confirmed, update case with file and status
+    # 5. Check if the graph paused before research
     current_case = session.get(Case, case_id)
-    if output.get("case_file"):
+    state = app_graph.get_state(config)
+    
+    if state.next and "research" in state.next:
+        current_case.status = "researching"
+        background_tasks.add_task(run_research_background, case_id, config)
+    elif output.get("case_file"): # Fallback just in case
         current_case.case_file = output["case_file"]
         current_case.status = "ready"
-        session.add(current_case)
         
+    session.add(current_case)
     session.commit()
     
     return {
