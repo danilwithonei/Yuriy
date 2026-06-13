@@ -55,3 +55,14 @@ services:
     depends_on:
       - backend
     restart: always
+
+  backend-tester:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+    profiles:
+      - testing

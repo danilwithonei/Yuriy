@@ -43,7 +43,13 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
     logger.info(f"Case chat WebSocket connected for case_id={case_id}")
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except Exception as e:
+                logger.warning(f"Invalid JSON received on WebSocket case_id={case_id}: {e}")
+                await websocket.send_json({"error": "Invalid JSON format"})
+                continue
+                
             message_text = data.get("message")
             if message_text:
                 logger.info(f"Received WS message for case_id={case_id}: {message_text[:50]}...")
