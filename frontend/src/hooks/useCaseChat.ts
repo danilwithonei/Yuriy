@@ -12,6 +12,7 @@ export interface ChatMessage {
 export function useCaseChat(caseId: number) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -25,13 +26,17 @@ export function useCaseChat(caseId: number) {
 
     socket.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'AI_RESPONSE') {
+      if (data.type === 'AI_THINKING') {
+        setIsThinking(true);
+      } else if (data.type === 'AI_RESPONSE') {
+        setIsThinking(false);
         setMessages((prev) => [...prev, { role: 'ai_case', content: data.content }]);
       }
     };
 
     socket.onclose = () => {
       setIsConnected(false);
+      setIsThinking(false);
       console.log(`Disconnected from Case ${caseId} WebSocket`);
     };
 
@@ -47,5 +52,5 @@ export function useCaseChat(caseId: number) {
     }
   }, []);
 
-  return { messages, setMessages, isConnected, sendMessage };
+  return { messages, setMessages, isConnected, isThinking, sendMessage };
 }

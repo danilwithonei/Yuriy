@@ -195,6 +195,12 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
                     messages = session.exec(select(Message).where(Message.case_id == case_id)).all()
                     history_str = "\n".join([f"{m.sender_role}: {m.content}" for m in messages])
                     
+                    # Уведомляем участников, что ИИ начал думать
+                    await manager.send_case_message(case_id, {
+                        "type": "AI_THINKING",
+                        "sender": "ai_case"
+                    })
+
                     llm = ChatOpenAI(
                         model=os.getenv("LLM_MODEL", "qwen3.7-plus"),
                         openai_api_key=os.getenv("DASHSCOPE_API_KEY"),
@@ -203,6 +209,9 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
 
                     prompt = ChatPromptTemplate.from_template(ASSISTANT_PROMPT)
                     chain = prompt | llm
+                    
+                    # Получаем текущий цикл событий
+                    loop = asyncio.get_event_loop()
                     
                     # Имитируем стриминг или просто отправляем ответ (пока просто ответ)
                     response = await loop.run_in_executor(None, lambda: chain.invoke({

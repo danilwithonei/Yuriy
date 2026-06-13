@@ -43,7 +43,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
   const caseId = parseInt(id);
   const [data, setData] = useState<CaseData | null>(null);
   const [chatInput, setChatInput] = useState('');
-  const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected } = useCaseChat(caseId);
+  const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected, isThinking } = useCaseChat(caseId);
   const scrollRef = useRef<HTMLDivElement>(null);
   
   // Подписываемся на стор, чтобы ловить обновления статуса в реальном времени
@@ -221,6 +221,26 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
               </div>
             </div>
           ))}
+
+          {isThinking && (
+            <div className="flex gap-4 group animate-in fade-in duration-500">
+              <Avatar className="h-8 w-8 shrink-0 border shadow-sm">
+                <AvatarFallback className="bg-blue-50 text-blue-600">
+                  <Bot className="h-4 w-4" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-2 overflow-hidden">
+                <div className="font-semibold text-sm">Yuriy AI</div>
+                <div className="flex items-center gap-1.5 py-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce" />
+                  <span className="text-xs text-gray-400 ml-2 font-medium">Ищет информацию...</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="h-32" /> {/* Увеличенный отступ снизу */}
         </div>
       </div>
