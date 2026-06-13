@@ -1,11 +1,27 @@
 'use client';
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState, use, useRef } from 'react';
 import axios from 'axios';
-import { Send, User, Bot, ArrowLeft } from 'lucide-react';
-import Link from 'next/link';
+import { Send, User, Bot, History, FileText, MessageSquare, Info, ChevronRight, UserCircle } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-interface Message {
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { useCaseChat } from '@/hooks/useCaseChat';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
+interface DBMessage {
   sender_role: string;
   content: string;
   timestamp: string;
@@ -16,15 +32,18 @@ interface CaseData {
     id: number;
     status: string;
     case_file: string | null;
+    client_id: number;
   };
-  messages: Message[];
+  messages: DBMessage[];
 }
 
 export default function CaseDetails({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const caseId = parseInt(id);
   const [data, setData] = useState<CaseData | null>(null);
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected } = useCaseChat(caseId);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -37,106 +56,167 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
         setChatMessages(existingAssists);
       })
       .catch(err => console.error(err));
-  }, [id]);
+  }, [id, setChatMessages]);
 
-  const handleSend = async () => {
-    if (!chatInput.trim()) return;
-    
-    const newMsg = { role: 'lawyer', content: chatInput };
-    setChatMessages(prev => [...prev, newMsg]);
-    setChatInput('');
-    
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const res = await axios.post(`${apiUrl}/cases/${id}/assist`, { message: chatInput });
-      setChatMessages(prev => [...prev, { role: 'ai_case', content: res.data.response }]);
-    } catch (err) {
-      console.error(err);
-      setChatMessages(prev => [...prev, { role: 'ai_case', content: "Произошла ошибка при обращении к ассистенту." }]);
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo(0, scrollRef.current.scrollHeight);
     }
+  }, [chatMessages]);
+
+  const handleSend = () => {
+    if (!chatInput.trim()) return;
+    sendMessage(chatInput);
+    setChatInput('');
   };
 
-  if (!data) return <div className="p-8">Загрузка данных дела...</div>;
+  if (!data) return (
+    <div className="flex items-center justify-center h-full text-muted-foreground animate-pulse">
+      Загрузка материалов дела...
+    </div>
+  );
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-black">
-      {/* Header */}
-      <div className="bg-white border-b p-4 flex items-center gap-4">
-        <Link href="/dashboard" className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-          <ArrowLeft size={20} />
-        </Link>
-        <h1 className="text-xl font-bold italic">Дело №{id}</h1>
-        <span className="ml-auto px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-          {data.case.status.toUpperCase()}
-        </span>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Column: Intake History & Case File */}
-        <div className="w-1/2 overflow-y-auto p-6 border-r bg-white">
-          <section className="mb-8">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
-              <User size={18} /> История приема
-            </h2>
-            <div className="space-y-4">
-              {data.messages.filter(m => m.sender_role === 'client' || m.sender_role === 'ai_intake').map((m, i) => (
-                <div key={i} className={`p-3 rounded-lg ${m.sender_role === 'client' ? 'bg-blue-50 border-l-4 border-blue-400' : 'bg-gray-50 border-l-4 border-gray-400'}`}>
-                  <p className="text-xs font-bold text-gray-500 uppercase mb-1">{m.sender_role === 'client' ? 'Клиент' : 'ИИ-Приемщик'}</p>
-                  <p className="text-sm">{m.content}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section>
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b pb-2">
-              <Bot size={18} /> Досье дела (Сгенерировано ИИ)
-            </h2>
-            <div className="prose prose-sm max-w-none bg-indigo-50 p-6 rounded-xl border border-indigo-100 whitespace-pre-wrap font-sans leading-relaxed text-black">
-              {data.case.case_file || "Досье еще не сформировано. Ожидайте подтверждения от клиента."}
-            </div>
-          </section>
+    <div className="flex flex-col flex-1 h-full overflow-hidden bg-white dark:bg-[#171717]">
+      {/* Шапка чата */}
+      <div className="h-14 border-b dark:border-gray-800 px-6 flex items-center justify-between sticky top-0 z-10 bg-white/80 dark:bg-[#171717]/80 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <h1 className="font-semibold text-sm">Дело №{id}</h1>
+          <div 
+            className={`h-2 w-2 rounded-full ${
+              data.case.status === 'ready' ? 'bg-emerald-500' : 
+              data.case.status === 'researching' ? 'bg-blue-500 animate-pulse' : 'bg-amber-500'
+            }`} 
+          />
+          <span className="text-[10px] text-gray-400 uppercase font-medium tracking-wider">
+            {data.case.status === 'ready' ? 'Исследование завершено' : 'В процессе анализа'}
+          </span>
         </div>
 
-        {/* Right Column: AI Assistant Chat */}
-        <div className="w-1/2 flex flex-col bg-white">
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            <div className="bg-indigo-600 text-white p-4 rounded-2xl rounded-tl-none max-w-[85%] shadow-lg">
-              <p className="text-xs font-bold opacity-75 mb-1 uppercase tracking-wider">ИИ-Ассистент</p>
-              <p className="text-sm leading-relaxed">Приветствую! Я готов помочь вам проанализировать это дело. Вы можете спрашивать меня о деталях переписки, результатах поиска или попросить сделать выводы.</p>
+        <div className="flex items-center gap-2">
+          <Sheet>
+            <SheetTrigger asChild>
+              <button className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors">
+                <FileText className="h-4 w-4" />
+                <span>Досье</span>
+              </button>
+            </SheetTrigger>
+            <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+              <SheetHeader className="mb-6">
+                <SheetTitle>Сформированное досье</SheetTitle>
+                <SheetDescription>Результаты автономного исследования ИИ по делу №{id}</SheetDescription>
+              </SheetHeader>
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                {data.case.case_file ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.case.case_file}</ReactMarkdown>
+                ) : (
+                  <div className="text-muted-foreground italic py-10 text-center">
+                    Досье еще формируется. Пожалуйста, подождите...
+                  </div>
+                )}
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          <Sheet>
+            <SheetTrigger asChild>
+              <button className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors">
+                <History className="h-4 w-4" />
+                <span>История</span>
+              </button>
+            </SheetTrigger>
+            <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+              <SheetHeader className="mb-6">
+                <SheetTitle>История приема</SheetTitle>
+                <SheetDescription>Первичный диалог клиента с ИИ-приемщиком</SheetDescription>
+              </SheetHeader>
+              <div className="space-y-6">
+                {data.messages.filter(m => m.sender_role === 'client' || m.sender_role === 'ai_intake').map((m, i) => (
+                  <div key={i} className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 text-[10px] uppercase font-bold text-gray-400">
+                      {m.sender_role === 'client' ? 'Клиент' : 'ИИ-Приемщик'}
+                    </div>
+                    <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg border dark:border-gray-800">
+                      {m.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
+      </div>
+
+      {/* Область сообщений */}
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto scroll-smooth no-scrollbar"
+      >
+        <div className="max-w-3xl mx-auto py-10 px-6 space-y-10">
+          {chatMessages.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
+              <Avatar className="h-12 w-12 border">
+                <AvatarFallback className="bg-emerald-50 text-emerald-600">AI</AvatarFallback>
+              </Avatar>
+              <div className="space-y-2">
+                <h3 className="font-medium">Чем я могу помочь?</h3>
+                <p className="text-sm text-gray-400 max-w-sm">
+                  Я проанализировал материалы дела №{id}. Вы можете попросить меня сделать выводы, найти противоречия или подготовить вопросы для клиента.
+                </p>
+              </div>
             </div>
-            
-            {chatMessages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'lawyer' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`p-4 rounded-2xl max-w-[85%] shadow-md ${
-                  m.role === 'lawyer' 
-                    ? 'bg-gray-100 text-gray-800 rounded-tr-none' 
-                    : 'bg-indigo-600 text-white rounded-tl-none'
-                }`}>
-                  <p className="text-xs font-bold opacity-75 mb-1 uppercase tracking-wider">{m.role === 'lawyer' ? 'Вы' : 'ИИ-Ассистент'}</p>
-                  <p className="text-sm leading-relaxed">{m.content}</p>
+          )}
+
+          {chatMessages.map((m, i) => (
+            <div key={i} className="flex gap-4 group">
+              <Avatar className="h-8 w-8 shrink-0 border">
+                {m.role === 'lawyer' ? (
+                  <AvatarFallback className="bg-gray-100 text-gray-600">U</AvatarFallback>
+                ) : (
+                  <AvatarFallback className="bg-emerald-50 text-emerald-600">
+                    <Bot className="h-4 w-4" />
+                  </AvatarFallback>
+                )}
+              </Avatar>
+              <div className="flex-1 space-y-1.5 overflow-hidden">
+                <div className="font-semibold text-sm">
+                  {m.role === 'lawyer' ? 'Вы' : 'Yuriy AI'}
+                </div>
+                <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {m.content}
+                  </ReactMarkdown>
                 </div>
               </div>
-            ))}
-          </div>
-
-          <div className="p-4 border-t bg-gray-50">
-            <div className="flex gap-2 bg-white p-2 rounded-xl border shadow-inner">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                placeholder="Спросите ассистента о деле..."
-                className="flex-1 bg-transparent border-none focus:ring-0 px-2 text-sm text-black"
-              />
-              <button
-                onClick={handleSend}
-                className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
-              >
-                <Send size={18} />
-              </button>
             </div>
+          ))}
+          <div className="h-24" /> {/* Отступ снизу для плавающего ввода */}
+        </div>
+      </div>
+
+      {/* Плавающее поле ввода */}
+      <div className="absolute bottom-0 left-0 right-0 p-6 bg-transparent pointer-events-none">
+        <div className="max-w-3xl mx-auto relative pointer-events-auto">
+          <div className="relative flex items-center bg-white dark:bg-[#212121] border dark:border-gray-800 shadow-lg rounded-2xl overflow-hidden p-1.5 focus-within:ring-1 focus-within:ring-gray-300 transition-all">
+            <Input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+              placeholder="Спросите ассистента о деталях дела..."
+              className="border-0 focus-visible:ring-0 bg-transparent h-12 py-3 px-4 text-[15px]"
+              disabled={!isConnected}
+            />
+            <Button 
+              size="icon" 
+              onClick={handleSend} 
+              disabled={!isConnected || !chatInput.trim()}
+              className="h-10 w-10 rounded-xl bg-black dark:bg-white text-white dark:text-black hover:opacity-80 transition-opacity"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="text-[10px] text-center mt-2 text-gray-400">
+            Yuriy AI может ошибаться. Проверяйте важную информацию.
           </div>
         </div>
       </div>
