@@ -130,7 +130,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
                       <div key={i} className="flex flex-col gap-2">
                         <div className="flex items-center gap-2 text-[10px] uppercase font-bold text-gray-400">
                           {m.sender_role === 'client' ? <UserCircle className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
-                          {m.sender_role === 'client' ? 'Клиент' : 'ИИ-Приемщик'}
+                          {m.sender_role === 'client' ? 'Клиент' : 'ИИ-Помощник'}
                         </div>
                         <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 bg-gray-50/50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 shadow-sm">
                           {m.content}
@@ -211,7 +211,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
               </Avatar>
               <div className="flex-1 space-y-1.5 overflow-hidden">
                 <div className="font-semibold text-sm">
-                  {m.role === 'lawyer' ? 'Вы' : 'Yuriy AI'}
+                  {m.role === 'lawyer' ? 'Вы' : 'ИИ-Ассистент'}
                 </div>
                 <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -230,7 +230,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 space-y-2 overflow-hidden">
-                <div className="font-semibold text-sm">Yuriy AI</div>
+                <div className="font-semibold text-sm">ИИ-Ассистент</div>
                 <div className="flex items-center gap-1.5 py-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.3s]" />
                   <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.15s]" />

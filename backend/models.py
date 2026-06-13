@@ -17,6 +17,11 @@ class Case(SQLModel, table=True):
 class Message(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     case_id: int = Field(foreign_key="case.id")
-    sender_role: str  # "client", "ai_intake", "lawyer", "ai_case"
+    # Роли: 
+    # "client" - клиент (ТГ), 
+    # "ai_intake" - ии-помощник (бот-приемщик в ТГ), 
+    # "lawyer" - юрист (веб-приложение), 
+    # "ai_case" - ии-ассистент (ассистент юриста в веб-приложении)
+    sender_role: str  
     content: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)

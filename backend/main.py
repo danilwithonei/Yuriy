@@ -187,7 +187,7 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
                         continue
                     
                     # Сохраняем сообщение пользователя
-                    user_msg = Message(case_id=case_id, sender_role="client", content=message_text)
+                    user_msg = Message(case_id=case_id, sender_role="lawyer", content=message_text)
                     session.add(user_msg)
                     session.commit()
 
