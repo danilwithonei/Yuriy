@@ -16,7 +16,10 @@ build/
 dist/
 
 # Databases
-backend/*.db
+**/db/*.db
+**/db/*.db-journal
+**/db/*.db-shm
+**/db/*.db-wal
 backend/*.sqlite3
 
 # IDEs and Editors
@@ -24,6 +27,8 @@ backend/*.sqlite3
 .idea/
 *.swp
 *.swo
+**/__pycache__/
+*.pyc
 
 # OS files
 .DS_Store

@@ -62,7 +62,7 @@ async def handle_message(message: types.Message):
     text = message.text
     logger.info(f"Message from user_id={user_id}: {text[:50]}...")
 
-    payload = {"user_id": user_id, "message": text}
+    payload = {"external_id": str(user_id), "source": "telegram", "message": text}
     if user_id in active_cases:
         payload["case_id"] = active_cases[user_id]
 

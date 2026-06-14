@@ -33,26 +33,36 @@ async def run_research_task(case_id: int):
             logger.info(f"Research completed and case_file saved for case_id={case_id}")
 
 class ChatRequest(BaseModel):
-    user_id: int
+    external_id: str
+    source: str
     case_id: Optional[int] = None
     message: str
 
 @app.post("/chat")
 async def chat(request: ChatRequest, session: Session = Depends(get_session)):
     case_id = request.case_id
-    logger.info(f"Chat request received for user_id={request.user_id}, case_id={case_id}")
+    logger.info(f"Chat request received for external_id={request.external_id}, source={request.source}, case_id={case_id}")
     
+    # Логика получения/создания пользователя
+    user = session.exec(
+        select(User).where(User.external_id == request.external_id, User.source == request.source)
+    ).first()
+    
+    if not user:
+        user = User(
+            external_id=request.external_id, 
+            source=request.source, 
+            username=f"{request.source}_{request.external_id}", 
+            role="client"
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        logger.info(f"Created new user: {user.username}")
+
     # Логика получения/создания дела
     if not case_id:
-        user = session.exec(select(User).where(User.id == request.user_id)).first()
-        if not user:
-            user = User(id=request.user_id, username=f"user_{request.user_id}", role="client")
-            session.add(user)
-            session.commit()
-            session.refresh(user)
-            logger.info(f"Created new user: {user.username}")
-        
-        case = Case(client_id=request.user_id)
+        case = Case(client_id=user.id, source=request.source)
         session.add(case)
         session.commit()
         session.refresh(case)
@@ -60,7 +70,7 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
         logger.info(f"Created new case with id={case_id}")
     
     # Сохраняем сообщение
-    msg = Message(case_id=case_id, sender_role="client", content=request.message)
+    msg = Message(case_id=case_id, sender_role="client", content=request.message, source=request.source)
     session.add(msg)
     session.commit()
 
@@ -70,7 +80,7 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
     
     # Сохраняем ответ ИИ
     ai_msg_content = output["messages"][-1].content
-    ai_msg = Message(case_id=case_id, sender_role="ai_intake", content=ai_msg_content)
+    ai_msg = Message(case_id=case_id, sender_role="ai_intake", content=ai_msg_content, source=request.source)
     session.add(ai_msg)
     session.commit()
 
