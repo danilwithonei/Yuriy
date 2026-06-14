@@ -31,14 +31,26 @@ services:
       - ./backend:/app
     restart: always
 
-  telegram_bot:
-    build: ./services/bot-service
+  # telegram_bot:
+  #   build: ./services/bot-service
+  #   env_file:
+  #     - ./backend/.env
+  #   environment:
+  #     - API_URL=http://intake-agent:8001
+  #   volumes:
+  #     - ./services/bot-service:/app
+  #   depends_on:
+  #     - intake-agent
+  #   restart: no
+
+  max-bot:
+    build: ./services/max-bot-service
     env_file:
       - ./backend/.env
     environment:
       - API_URL=http://intake-agent:8001
     volumes:
-      - ./services/bot-service:/app
+      - ./services/max-bot-service:/app
     depends_on:
       - intake-agent
     restart: always

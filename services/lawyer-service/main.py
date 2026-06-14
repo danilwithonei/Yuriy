@@ -37,7 +37,7 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
     logger.info(f"Analyze request for case_id={request.case_id}")
     try:
         # 1. Сохраняем вопрос юриста в локальную БД ассистента
-        user_msg = Message(case_id=request.case_id, sender_role="lawyer", content=request.query)
+        user_msg = Message(case_id=request.case_id, sender_role="lawyer", content=request.query, source="frontend")
         session.add(user_msg)
         session.commit()
 
@@ -63,7 +63,7 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
         })
         
         # 3. Сохраняем ответ ассистента
-        ai_msg = Message(case_id=request.case_id, sender_role="ai_case", content=response.content)
+        ai_msg = Message(case_id=request.case_id, sender_role="ai_case", content=response.content, source="frontend")
         session.add(ai_msg)
         session.commit()
         
