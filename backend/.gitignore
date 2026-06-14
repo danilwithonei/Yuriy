@@ -16,3 +16,8 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+mutants/
+.coverage
+htmlcov/
+coverage.xml
+.mutmut-cache

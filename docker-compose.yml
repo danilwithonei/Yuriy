@@ -1,4 +1,26 @@
 services:
+  intake-agent:
+    build: ./services/intake-service
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./services/intake-service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8001
+    restart: always
+
+  lawyer-service:
+    build: ./services/lawyer-service
+    ports:
+      - "8002:8002"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./services/lawyer-service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8002
+    restart: always
+
   backend:
     build: ./backend
     ports:
@@ -7,7 +29,18 @@ services:
       - ./backend/.env
     volumes:
       - ./backend:/app
-      - /app/venv
+    restart: always
+
+  telegram_bot:
+    build: ./services/bot-service
+    env_file:
+      - ./backend/.env
+    environment:
+      - API_URL=http://intake-agent:8001
+    volumes:
+      - ./services/bot-service:/app
+    depends_on:
+      - intake-agent
     restart: always
 
   frontend:
@@ -18,8 +51,18 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
     volumes:
       - ./frontend:/app
-      - /app/node_modules
       - /app/.next
     depends_on:
       - backend
     restart: always
+
+  backend-tester:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+    profiles:
+      - testing
