@@ -53,22 +53,32 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
 
         logger.info(f"Invoking LLM for case_id={request.case_id}")
         llm = get_llm()
-        prompt = ChatPromptTemplate.from_template(ASSISTANT_PROMPT)
-        chain = prompt | llm
         
-        response = chain.invoke({
-            "case_file": request.case_file,
-            "history": full_context_history,
-            "query": request.query
-        })
+        from langgraph.prebuilt import create_react_agent
+        from langchain_community.tools.tavily_search import TavilySearchResults
+        from langchain_core.messages import HumanMessage
+        
+        system_message = ASSISTANT_PROMPT.format(
+            case_file=request.case_file,
+            history=full_context_history
+        )
+        
+        tools = []
+        if os.getenv("TAVILY_API_KEY"):
+            tools.append(TavilySearchResults(max_results=3))
+            
+        agent = create_react_agent(llm, tools, state_modifier=system_message)
+        
+        result = agent.invoke({"messages": [HumanMessage(content=request.query)]})
+        final_response = result["messages"][-1].content
         
         # 3. Сохраняем ответ ассистента
-        ai_msg = Message(case_id=request.case_id, sender_role="ai_case", content=response.content, source="frontend")
+        ai_msg = Message(case_id=request.case_id, sender_role="ai_case", content=final_response, source="frontend")
         session.add(ai_msg)
         session.commit()
         
         logger.info(f"LLM analysis completed for case_id={request.case_id}")
-        return {"response": response.content}
+        return {"response": final_response}
     except Exception as e:
         logger.error(f"Error during analysis for case_id={request.case_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
