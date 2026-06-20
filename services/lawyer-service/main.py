@@ -67,7 +67,7 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
         if os.getenv("TAVILY_API_KEY"):
             tools.append(TavilySearchResults(max_results=3))
             
-        agent = create_react_agent(llm, tools, state_modifier=system_message)
+        agent = create_react_agent(llm, tools, prompt=system_message)
         
         result = agent.invoke({"messages": [HumanMessage(content=request.query)]})
         final_response = result["messages"][-1].content
