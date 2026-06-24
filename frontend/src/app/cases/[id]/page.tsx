@@ -88,24 +88,6 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
     }
   }, [storeCase?.status, data?.case.status, fetchData]);
 
-  // Polling when researching
-  useEffect(() => {
-    if (data?.case.status !== 'researching') return;
-    const interval = setInterval(async () => {
-      try {
-        const res = await axios.get(`${apiUrl}/cases/${id}`);
-        const newStatus = res.data.case.status;
-        if (newStatus === 'ready') {
-          setData(res.data);
-          clearInterval(interval);
-        }
-      } catch (e) {
-        console.error('Polling error:', e);
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [data?.case.status, apiUrl, id]);
-
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo(0, scrollRef.current.scrollHeight);

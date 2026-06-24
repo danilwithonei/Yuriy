@@ -21,10 +21,24 @@ app.add_middleware(
 INTAKE_SERVICE_URL = os.getenv("INTAKE_SERVICE_URL", "http://intake-agent:8001")
 LAWYER_SERVICE_URL = os.getenv("LAWYER_SERVICE_URL", "http://lawyer-service:8002")
 
+class CaseUpdatedRequest(BaseModel):
+    case_id: int
+    status: str
+
 @app.get("/")
 def read_root():
     logger.info("Health check endpoint called")
     return {"message": "Lawyer Dashboard Gateway is running"}
+
+@app.post("/internal/case-updated")
+async def case_updated(request: CaseUpdatedRequest):
+    logger.info(f"Case {request.case_id} status updated to {request.status}, broadcasting")
+    await manager.broadcast_dashboard({
+        "type": "CASE_STATUS_UPDATED",
+        "case_id": request.case_id,
+        "status": request.status
+    })
+    return {"ok": True}
 
 class CreateCaseRequest(BaseModel):
     type: str = "direct"

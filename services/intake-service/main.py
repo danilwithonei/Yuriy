@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from typing import Optional, List
 import os
+import httpx
 import uvicorn
 
 # Импорты из локальных модулей сервиса
@@ -37,6 +38,17 @@ def _seed_default_lawyer():
         session.commit()
         logger.info("Seeded default lawyer user")
 
+async def _notify_gateway(case_id: int, status: str):
+    gateway_url = os.getenv("GATEWAY_URL", "http://backend:8000")
+    async with httpx.AsyncClient() as client:
+        try:
+            await client.post(f"{gateway_url}/internal/case-updated", json={
+                "case_id": case_id, "status": status
+            }, timeout=5.0)
+            logger.info(f"Gateway notified: case {case_id} -> {status}")
+        except Exception as e:
+            logger.warning(f"Failed to notify gateway for case {case_id}: {e}")
+
 async def run_research_task(case_id: int):
     """Фоновая задача для исследования."""
     logger.info(f"Background research started for case_id={case_id}")
@@ -60,6 +72,7 @@ async def run_research_task(case_id: int):
                 logger.warning(f"Research incomplete, fallback for case_id={case_id}")
             session.add(case)
             session.commit()
+            await _notify_gateway(case_id, "ready")
 
 class CreateCaseRequest(BaseModel):
     case_type: str = "intake"
