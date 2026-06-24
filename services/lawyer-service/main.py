@@ -4,6 +4,10 @@ from sqlmodel import Session, select
 from core.llm import get_llm
 from core.logger import logger
 from langchain_core.prompts import ChatPromptTemplate
+try:
+    from langchain_tavily import TavilySearchResults
+except ImportError:
+    from langchain_community.tools.tavily_search import TavilySearchResults
 from prompts import ASSISTANT_PROMPT
 from models import Message, Case
 from database import create_db_and_tables, get_session
@@ -23,6 +27,7 @@ class AssistRequest(BaseModel):
     case_file: str
     history: str # История из Intake Service (клиент-агент)
     query: str
+    search_web: bool = False
 
 @app.get("/")
 def read_root():
@@ -51,15 +56,34 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
         
         full_context_history = f"--- КЛИЕНТ-ИНТЕРВЬЮ ---\n{request.history}\n\n--- ДИАЛОГ С ЮРИСТОМ ---\n{lawyer_history_str}"
 
+        search_results = ""
+        if request.search_web:
+            logger.info(f"Web search enabled for case_id={request.case_id}")
+            try:
+                search = TavilySearchResults(max_results=5)
+                raw_results = search.invoke(request.query)
+                search_results = "\n\n".join(
+                    [f"**{r.get('title','')}**\n{r.get('content','')}\n[{r.get('url','')}]" for r in raw_results]
+                )
+                logger.info(f"Web search completed for case_id={request.case_id}, results={len(raw_results)}")
+            except Exception as e:
+                logger.warning(f"Web search failed for case_id={request.case_id}: {e}")
+                search_results = ""
+
+        search_results_section = ""
+        if search_results:
+            search_results_section = f"РЕЗУЛЬТАТЫ ПОИСКА В ИНТЕРНЕТЕ:\n{search_results}"
+
         logger.info(f"Invoking LLM for case_id={request.case_id}")
         llm = get_llm()
         prompt = ChatPromptTemplate.from_template(ASSISTANT_PROMPT)
         chain = prompt | llm
         
         response = chain.invoke({
-            "case_file": request.case_file,
+            "case_file": request.case_file or "Не указано.",
             "history": full_context_history,
-            "query": request.query
+            "query": request.query,
+            "search_results_section": search_results_section
         })
         
         # 3. Сохраняем ответ ассистента

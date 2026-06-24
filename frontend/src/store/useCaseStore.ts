@@ -5,6 +5,7 @@ export interface Case {
   id: number;
   client_id: number;
   status: 'open' | 'researching' | 'ready';
+  case_type: 'intake' | 'direct';
   created_at: string;
   case_file?: string;
 }
@@ -19,6 +20,7 @@ interface CaseState {
   updateCaseStatus: (caseId: number, status: Case['status']) => void;
   setActiveCaseId: (id: number | null) => void;
   fetchCases: () => Promise<void>;
+  createCase: (type: 'intake' | 'direct') => Promise<number>;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -51,5 +53,21 @@ export const useCaseStore = create<CaseState>((set) => ({
       console.error('Failed to fetch cases:', error);
       set({ loading: false });
     }
+  },
+
+  createCase: async (type) => {
+    const response = await axios.post(`${API_URL}/cases`, { type });
+    const { case_id, case_type } = response.data;
+    const newCase: Case = {
+      id: case_id,
+      client_id: 0,
+      status: 'open',
+      case_type: case_type || type,
+      created_at: new Date().toISOString(),
+    };
+    set((state) => ({
+      cases: [newCase, ...state.cases],
+    }));
+    return case_id;
   },
 }));

@@ -8,10 +8,12 @@ def get_llm(model_name: str = None):
     """
     Возвращает настроенный экземпляр ChatOpenAI для работы с Qwen через DashScope.
     """
+    base_host = os.getenv("DASHSCOPE_BASE_HOST", "ws-8xsmg0t4kftupsd5.ap-southeast-1.maas.aliyuncs.com")
     return ChatOpenAI(
         model=model_name or os.getenv("LLM_MODEL", "qwen3.7-plus"),
         openai_api_key=os.getenv("DASHSCOPE_API_KEY"),
-        openai_api_base="https://ws-8xsmg0t4kftupsd5.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+        openai_api_base=f"https://{base_host}/compatible-mode/v1",
+        timeout=60
     )
 
 # Дефолтный экземпляр для переиспользования

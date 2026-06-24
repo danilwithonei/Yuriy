@@ -13,6 +13,7 @@ class Case(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     client_id: int = Field(foreign_key="user.id")
     source: str = Field(default="system")
+    case_type: str = Field(default="intake")  # "intake" | "direct"
     status: str = Field(default="open")  # "open", "researching", "ready", "closed"
     case_file: Optional[str] = None  # Markdown report
     created_at: datetime = Field(default_factory=datetime.utcnow)

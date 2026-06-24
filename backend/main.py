@@ -26,6 +26,27 @@ def read_root():
     logger.info("Health check endpoint called")
     return {"message": "Lawyer Dashboard Gateway is running"}
 
+class CreateCaseRequest(BaseModel):
+    type: str = "direct"
+
+@app.post("/cases")
+async def create_case(request: CreateCaseRequest):
+    logger.info(f"Create case request: type={request.type}")
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(f"{INTAKE_SERVICE_URL}/create-case", json={
+                "case_type": request.type,
+                "source": "frontend"
+            })
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail="Failed to create case")
+            return response.json()
+        except httpx.ConnectError:
+            raise HTTPException(status_code=502, detail="Intake Service unavailable")
+        except Exception as e:
+            logger.error(f"Error creating case: {e}")
+            raise HTTPException(status_code=502, detail=f"Service Error: {str(e)}")
+
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
     await manager.connect_dashboard(websocket)
@@ -50,7 +71,7 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
             except Exception as e:
                 logger.warning(f"Invalid JSON received on WebSocket case_id={case_id}: {e}")
                 try:
-                    await websocket.send_json({"error": "Invalid JSON format"})
+                    await websocket.send_json({"type": "AI_ERROR", "error": "Invalid JSON format"})
                 except Exception:
                     pass
                 continue
@@ -64,18 +85,23 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
                         case_res = await client.get(f"{INTAKE_SERVICE_URL}/case/{case_id}")
                         if case_res.status_code != 200:
                             logger.error(f"Case {case_id} not found in Intake Service")
-                            await websocket.send_json({"error": "Case not found in Intake Service"})
+                            await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": "Case not found in Intake Service"})
                             continue
                     except Exception as e:
                         logger.error(f"Failed to reach Intake Service: {e}")
-                        await websocket.send_json({"error": "Intake Service unavailable"})
+                        await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": "Intake Service unavailable"})
                         continue
                     
                     case_data = case_res.json()
-                    case_file = case_data["case"].get("case_file") or "Досье еще не сформировано."
+                    case_type = case_data["case"].get("case_type", "intake")
+                    is_direct = case_type == "direct"
                     
-                    # История клиент-агент
-                    intake_history = "\n".join([f"{m['sender_role']}: {m['content']}" for m in case_data["messages"]])
+                    if is_direct:
+                        case_file = ""
+                        intake_history = ""
+                    else:
+                        case_file = case_data["case"].get("case_file") or "Досье еще не сформировано."
+                        intake_history = "\n".join([f"{m['sender_role']}: {m['content']}" for m in case_data["messages"]])
                     
                     await manager.send_case_message(case_id, {"type": "AI_THINKING", "sender": "ai_case"})
 
@@ -86,12 +112,25 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
                             "case_id": case_id,
                             "case_file": case_file,
                             "history": intake_history,
-                            "query": message_text
+                            "query": message_text,
+                            "search_web": is_direct
                         }, timeout=60.0)
-                        
-                        ai_content = assist_res.json()["response"]
+
+                        if assist_res.status_code != 200:
+                            error_detail = assist_res.json().get("detail", "Lawyer Assistant Service error")
+                            logger.error(f"Lawyer Assistant error for case_id={case_id}: {error_detail}")
+                            await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": error_detail})
+                            continue
+
+                        assist_data = assist_res.json()
+                        ai_content = assist_data.get("response")
+                        if not ai_content:
+                            logger.error(f"Empty response from Lawyer Assistant for case_id={case_id}")
+                            await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": "Empty response from assistant"})
+                            continue
+
                         logger.info(f"AI response received for case_id={case_id}")
-                        
+
                         await manager.send_case_message(case_id, {
                             "type": "AI_RESPONSE",
                             "content": ai_content,
@@ -99,7 +138,7 @@ async def websocket_case_chat(websocket: WebSocket, case_id: int):
                         })
                     except Exception as e:
                         logger.error(f"Failed to reach Lawyer Assistant Service: {e}")
-                        await websocket.send_json({"error": "Lawyer Assistant Service unavailable"})
+                        await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": "Lawyer Assistant Service unavailable"})
 
     except WebSocketDisconnect:
         manager.disconnect_case(case_id, websocket)
@@ -175,6 +214,46 @@ async def assist_case(case_id: int, request: AssistRequest):
         except Exception as e:
             logger.error(f"Error in manual assist for case {case_id}: {e}")
             raise HTTPException(status_code=502, detail=f"Service Communication Error: {str(e)}")
+
+@app.post("/cases/{case_id}/intake/chat")
+async def intake_chat(case_id: int, request: AssistRequest):
+    logger.info(f"Intake chat for case_id={case_id}: {request.message[:50]}...")
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.post(f"{INTAKE_SERVICE_URL}/chat", json={
+                "external_id": "lawyer_default",
+                "source": "frontend",
+                "case_id": case_id,
+                "message": request.message
+            }, timeout=120.0)
+            if res.status_code != 200:
+                error_detail = res.json().get("detail", "Intake Service error")
+                raise HTTPException(status_code=502, detail=error_detail)
+            return res.json()
+        except httpx.ConnectError:
+            raise HTTPException(status_code=502, detail="Intake Service unavailable")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error in intake chat for case {case_id}: {e}")
+            raise HTTPException(status_code=502, detail=f"Service Error: {str(e)}")
+
+@app.post("/cases/{case_id}/intake/confirm")
+async def intake_confirm(case_id: int):
+    logger.info(f"Intake confirm for case_id={case_id}")
+    async with httpx.AsyncClient() as client:
+        try:
+            res = await client.post(f"{INTAKE_SERVICE_URL}/confirm", json={"case_id": case_id})
+            if res.status_code != 200:
+                raise HTTPException(status_code=502, detail="Failed to confirm intake")
+            return res.json()
+        except httpx.ConnectError:
+            raise HTTPException(status_code=502, detail="Intake Service unavailable")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error confirming intake for case {case_id}: {e}")
+            raise HTTPException(status_code=502, detail=f"Service Error: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
