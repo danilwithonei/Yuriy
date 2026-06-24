@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Yuriy Frontend — Личный кабинет юриста
 
-## Getting Started
+Next.js 16 (App Router) + React 19 + Tailwind CSS v4.
 
-First, run the development server:
+## Стек
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Next.js 16**, Turbopack (dev)
+- **React 19**, `react-markdown` + `remark-gfm`
+- **Zustand** — состояние (useAuthStore, useCaseStore)
+- **axios** — HTTP с Bearer-перехватчиком
+- **Base UI** — компоненты
+- **Tailwind CSS v4**, `tailwind-merge`, `class-variance-authority`
+- **lucide-react** — иконки
+
+## Структура
+
+```
+app/
+  login/page.tsx       # Вход (email + password)
+  register/page.tsx    # Регистрация
+  cases/
+    [id]/page.tsx      # Детали дела, чат с ассистентом
+components/
+  AppSidebar.tsx       # Боковая панель (аватар, имя, выход)
+  LayoutShell.tsx      # Общий лэйаут + AuthGuard
+  WebSocketProvider.tsx
+hooks/
+  useCaseChat.ts       # WebSocket чат с ?token=
+lib/
+  api.ts               # axios инстанс, динамический API URL
+store/
+  useAuthStore.ts      # Токен, user, login/logout
+  useCaseStore.ts      # Список дел, активное дело, WebSocket
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## API URL
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Динамический: `http://<hostname>:8000` из `window.location.hostname` — работает в локальной сети без указания `NEXT_PUBLIC_API_URL`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Аутентификация
 
-## Learn More
+1. Регистрация `/auth/register` → получает JWT
+2. Логин `/auth/login` → получает JWT
+3. Токен хранится в Zustand + localStorage
+4. axios-перехватчик добавляет `Authorization: Bearer <token>`
+5. `AuthGuard` в `LayoutShell` — редирект на `/login` при отсутствии токена
+6. WebSocket: `?token=<jwt>` в query params
 
-To learn more about Next.js, take a look at the following resources:
+## Разработка
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run dev        # Turbopack на :3000
+npm run build      # Продакшен-сборка
+npm run lint       # ESLint
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Структурные решения
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `allowedDevOrigins: ['bob-rpc-node']` в `next.config.ts` (для разработки на удалённой машине)
+- Все ID дел — строки (UUIDv4), не числа
+- При 403 (чужое дело) — экран «Нет доступа» внутри LayoutShell
+- Поллинг удалён; обновления через WebSocket (CASE_STATUS_UPDATED)

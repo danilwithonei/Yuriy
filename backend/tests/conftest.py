@@ -1,22 +1,58 @@
+import os
+os.environ["TESTING"] = "1"
+
 import pytest
 from fastapi.testclient import TestClient
-from main import app
-import os
+from sqlmodel import SQLModel, Session
+from typing import Dict
 
-# Устанавливаем переменные окружения для тестов, если они не заданы
-os.environ["INTAKE_SERVICE_URL"] = "http://intake-agent:8001"
-os.environ["LAWYER_SERVICE_URL"] = "http://lawyer-service:8002"
+from database import engine
+from main import app
+from models import Lawyer
+from auth import hash_password, create_token, get_lawyer_by_email
+
+INTAKE_URL = os.getenv("INTAKE_SERVICE_URL", "http://intake-agent:8001")
+LAWYER_URL = os.getenv("LAWYER_SERVICE_URL", "http://lawyer-service:8002")
+
+TEST_LAWYERS = [
+    ("lawyer_a@test.com", "Lawyer A", "pass1234"),
+    ("lawyer_b@test.com", "Lawyer B", "pass5678"),
+]
+
+@pytest.fixture(scope="session", autouse=True)
+def test_db():
+    SQLModel.metadata.create_all(engine)
+    yield
+    SQLModel.metadata.drop_all(engine)
+
+@pytest.fixture(scope="session")
+def lawyers() -> Dict[str, str]:
+    ids = {}
+    tokens = {}
+    for email, name, pw in TEST_LAWYERS:
+        with Session(engine) as session:
+            existing = get_lawyer_by_email(session, email)
+            if existing:
+                lid = existing.id
+            else:
+                lawyer = Lawyer(email=email, name=name, password_hash=hash_password(pw))
+                session.add(lawyer)
+                session.commit()
+                session.refresh(lawyer)
+                lid = lawyer.id
+        ids[email] = lid
+        tokens[email] = create_token(lid)
+    return {"ids": ids, "tokens": tokens}
 
 @pytest.fixture
 def client():
-    """Фикстура для FastAPI TestClient"""
     with TestClient(app) as c:
         yield c
 
 @pytest.fixture
-def mock_env():
-    """Фикстура для проверки переменных окружения (опционально)"""
-    return {
-        "INTAKE_SERVICE_URL": os.getenv("INTAKE_SERVICE_URL"),
-        "LAWYER_SERVICE_URL": os.getenv("LAWYER_SERVICE_URL")
-    }
+def auth_headers(lawyers):
+    return {"Authorization": f"Bearer {lawyers['tokens']['lawyer_a@test.com']}"}
+
+@pytest.fixture
+def auth_headers_b(lawyers):
+    return {"Authorization": f"Bearer {lawyers['tokens']['lawyer_b@test.com']}"}

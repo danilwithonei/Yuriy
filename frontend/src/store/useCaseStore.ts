@@ -1,9 +1,10 @@
 import { create } from 'zustand';
-import axios from 'axios';
+import api from '@/lib/api';
 
 export interface Case {
-  id: number;
+  id: string;
   client_id: number;
+  lawyer_id?: number | null;
   status: 'open' | 'researching' | 'ready';
   case_type: 'intake' | 'direct';
   created_at: string;
@@ -12,18 +13,16 @@ export interface Case {
 
 interface CaseState {
   cases: Case[];
-  activeCaseId: number | null;
+  activeCaseId: string | null;
   loading: boolean;
   
   setCases: (cases: Case[]) => void;
   addCase: (newCase: Case) => void;
-  updateCaseStatus: (caseId: number, status: Case['status']) => void;
-  setActiveCaseId: (id: number | null) => void;
+  updateCaseStatus: (caseId: string, status: Case['status']) => void;
+  setActiveCaseId: (id: string | null) => void;
   fetchCases: () => Promise<void>;
-  createCase: (type: 'intake' | 'direct') => Promise<number>;
+  createCase: (type: 'intake' | 'direct') => Promise<string>;
 }
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export const useCaseStore = create<CaseState>((set) => ({
   cases: [],
@@ -47,7 +46,7 @@ export const useCaseStore = create<CaseState>((set) => ({
   fetchCases: async () => {
     set({ loading: true });
     try {
-      const response = await axios.get(`${API_URL}/cases`);
+      const response = await api.get('/cases');
       set({ cases: response.data, loading: false });
     } catch (error) {
       console.error('Failed to fetch cases:', error);
@@ -56,11 +55,12 @@ export const useCaseStore = create<CaseState>((set) => ({
   },
 
   createCase: async (type) => {
-    const response = await axios.post(`${API_URL}/cases`, { type });
-    const { case_id, case_type } = response.data;
+    const response = await api.post('/cases', { type });
+    const { case_id, case_type, lawyer_id } = response.data;
     const newCase: Case = {
       id: case_id,
       client_id: 0,
+      lawyer_id,
       status: 'open',
       case_type: case_type || type,
       created_at: new Date().toISOString(),

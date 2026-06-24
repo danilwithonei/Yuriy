@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+import { useAuthStore } from '@/store/useAuthStore';
+import { WS_BASE_URL } from '@/lib/api';
 
 export interface ChatMessage {
   role: 'client' | 'ai_intake' | 'ai_case' | 'lawyer';
@@ -10,15 +10,19 @@ export interface ChatMessage {
   timestamp?: string;
 }
 
-export function useCaseChat(caseId: number) {
+export function useCaseChat(caseId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
 
+  const token = useAuthStore((s) => s.token);
+
   useEffect(() => {
-    const socket = new WebSocket(`${WS_URL}/ws/cases/${caseId}/chat`);
+    if (!token) return;
+
+    const socket = new WebSocket(`${WS_BASE_URL}/ws/cases/${caseId}/chat?token=${token}`);
     socketRef.current = socket;
 
     socket.onopen = () => {
@@ -52,7 +56,7 @@ export function useCaseChat(caseId: number) {
     return () => {
       socket.close();
     };
-  }, [caseId]);
+  }, [caseId, token]);
 
   const sendMessage = useCallback((content: string) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {

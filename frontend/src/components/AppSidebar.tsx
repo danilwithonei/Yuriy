@@ -2,8 +2,9 @@
 
 import * as React from 'react';
 import { useCaseStore } from '@/store/useCaseStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { useRouter, useParams } from 'next/navigation';
-import { FileText, Bot, SquarePen } from 'lucide-react';
+import { FileText, Bot, SquarePen, LogOut, User } from 'lucide-react';
 import { NewChatModal } from '@/components/NewChatModal';
 
 import {
@@ -15,13 +16,15 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarFooter,
 } from '@/components/ui/sidebar';
 
 export function AppSidebar() {
   const { cases, fetchCases, loading } = useCaseStore();
+  const { lawyer, logout } = useAuthStore();
   const router = useRouter();
   const params = useParams();
-  const activeCaseId = params.id ? parseInt(params.id as string) : null;
+  const activeCaseId = params.id ? (params.id as string) : null;
   const [newChatOpen, setNewChatOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -110,6 +113,25 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
+
+        <SidebarFooter className="p-3 border-t dark:border-gray-800">
+          <div className="flex items-center gap-3 px-2 py-2">
+            <div className="h-8 w-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase shrink-0">
+              {lawyer?.name?.charAt(0) || '?'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate">{lawyer?.name}</div>
+              <div className="text-[11px] text-gray-400 truncate">{lawyer?.email}</div>
+            </div>
+            <button
+              onClick={logout}
+              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-md transition-colors shrink-0"
+              title="Выйти"
+            >
+              <LogOut className="h-4 w-4 text-gray-500" />
+            </button>
+          </div>
+        </SidebarFooter>
       </Sidebar>
     </>
   );

@@ -2,18 +2,21 @@
 
 import React, { useEffect } from 'react';
 import { useCaseStore } from '@/store/useCaseStore';
-
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
+import { useAuthStore } from '@/store/useAuthStore';
+import { WS_BASE_URL } from '@/lib/api';
 
 export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const { addCase, updateCaseStatus } = useCaseStore();
+  const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
+    if (!token) return;
+
     let socket: WebSocket;
     let reconnectTimeout: NodeJS.Timeout;
 
     const connect = () => {
-      socket = new WebSocket(`${WS_URL}/ws/dashboard`);
+      socket = new WebSocket(`${WS_BASE_URL}/ws/dashboard?token=${token}`);
 
       socket.onopen = () => {
         console.log('Connected to Dashboard WebSocket');
@@ -21,7 +24,6 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
 
       socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('WS Dashboard Message:', data);
 
         if (data.type === 'CASE_CREATED') {
           addCase(data.case);
@@ -35,8 +37,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
         reconnectTimeout = setTimeout(connect, 3000);
       };
 
-      socket.onerror = (error) => {
-        console.error('WebSocket Error:', error);
+      socket.onerror = () => {
         socket.close();
       };
     };
@@ -47,7 +48,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       if (socket) socket.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, [addCase, updateCaseStatus]);
+  }, [token, addCase, updateCaseStatus]);
 
   return <>{children}</>;
 }

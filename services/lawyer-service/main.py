@@ -23,7 +23,7 @@ def on_startup():
     create_db_and_tables()
 
 class AssistRequest(BaseModel):
-    case_id: int
+    case_id: str
     case_file: str
     history: str # История из Intake Service (клиент-агент)
     query: str
@@ -98,7 +98,7 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/messages/{case_id}")
-async def get_messages(case_id: int, session: Session = Depends(get_session)):
+async def get_messages(case_id: str, session: Session = Depends(get_session)):
     """Возвращает историю переписки юриста с ассистентом."""
     logger.info(f"Fetching lawyer messages for case_id={case_id}")
     messages = session.exec(select(Message).where(Message.case_id == case_id)).all()

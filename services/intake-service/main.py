@@ -38,7 +38,7 @@ def _seed_default_lawyer():
         session.commit()
         logger.info("Seeded default lawyer user")
 
-async def _notify_gateway(case_id: int, status: str):
+async def _notify_gateway(case_id: str, status: str):
     gateway_url = os.getenv("GATEWAY_URL", "http://backend:8000")
     async with httpx.AsyncClient() as client:
         try:
@@ -49,7 +49,7 @@ async def _notify_gateway(case_id: int, status: str):
         except Exception as e:
             logger.warning(f"Failed to notify gateway for case {case_id}: {e}")
 
-async def run_research_task(case_id: int):
+async def run_research_task(case_id: str):
     """Фоновая задача для исследования."""
     logger.info(f"Background research started for case_id={case_id}")
     try:
@@ -78,11 +78,12 @@ class CreateCaseRequest(BaseModel):
     case_type: str = "intake"
     source: str = "frontend"
     external_id: str = "lawyer_default"
+    lawyer_id: Optional[int] = None
 
 class ChatRequest(BaseModel):
     external_id: str
     source: str
-    case_id: Optional[int] = None
+    case_id: Optional[str] = None
     message: str
     case_type: Optional[str] = None
 
@@ -105,13 +106,13 @@ async def create_case(request: CreateCaseRequest, session: Session = Depends(get
         session.refresh(user)
         logger.info(f"Created user for case creation: {user.username}")
 
-    case = Case(client_id=user.id, source=request.source, case_type=request.case_type)
+    case = Case(client_id=user.id, source=request.source, case_type=request.case_type, lawyer_id=request.lawyer_id)
     session.add(case)
     session.commit()
     session.refresh(case)
-    logger.info(f"Created case id={case.id}, type={request.case_type}")
+    logger.info(f"Created case id={case.id}, type={request.case_type}, lawyer_id={request.lawyer_id}")
 
-    return {"case_id": case.id, "case_type": request.case_type}
+    return {"case_id": case.id, "case_type": request.case_type, "lawyer_id": request.lawyer_id}
 
 @app.post("/chat")
 async def chat(request: ChatRequest, session: Session = Depends(get_session)):
@@ -185,7 +186,7 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
     }
 
 class ConfirmRequest(BaseModel):
-    case_id: int
+    case_id: str
 
 @app.post("/confirm")
 async def confirm(request: ConfirmRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
@@ -206,12 +207,15 @@ async def confirm(request: ConfirmRequest, background_tasks: BackgroundTasks, se
     return {"status": "researching"}
 
 @app.get("/cases", response_model=List[Case])
-async def list_cases(session: Session = Depends(get_session)):
-    logger.info("Intake Service: list_cases called")
-    return session.exec(select(Case)).all()
+async def list_cases(lawyer_id: Optional[int] = None, session: Session = Depends(get_session)):
+    logger.info(f"Intake Service: list_cases called, lawyer_id={lawyer_id}")
+    query = select(Case)
+    if lawyer_id is not None:
+        query = query.where(Case.lawyer_id == lawyer_id)
+    return session.exec(query).all()
 
 @app.get("/case/{case_id}")
-async def get_case_status(case_id: int, session: Session = Depends(get_session)):
+async def get_case_status(case_id: str, session: Session = Depends(get_session)):
     logger.info(f"Intake Service: get_case_status for id={case_id}")
     case = session.get(Case, case_id)
     if not case:

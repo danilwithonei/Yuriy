@@ -6,7 +6,7 @@ from core.state import AgentState
 
 class AgentService:
     @staticmethod
-    async def handle_user_message(case_id: int, message: str) -> Tuple[Dict[str, Any], bool]:
+    async def handle_user_message(case_id: str, message: str) -> Tuple[Dict[str, Any], bool]:
         """
         Обрабатывает сообщение от пользователя, запуская или продолжая граф.
         Возвращает (output_state, is_ready).
@@ -40,7 +40,7 @@ class AgentService:
         return output, is_ready
 
     @staticmethod
-    async def confirm_and_resume(case_id: int) -> bool:
+    async def confirm_and_resume(case_id: str) -> bool:
         """
         Устанавливает флаг подтверждения и запускает продолжение графа.
         """
@@ -58,7 +58,7 @@ class AgentService:
         return True
 
     @staticmethod
-    async def run_background_research(case_id: int) -> Dict[str, Any]:
+    async def run_background_research(case_id: str) -> Dict[str, Any]:
         """
         Запускает выполнение графа с места прерывания (research).
         Используется в фоновых задачах.

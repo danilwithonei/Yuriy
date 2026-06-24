@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, use, useRef } from 'react';
-import axios from 'axios';
+import api from '@/lib/api';
 import { Send, User, Bot, History, FileText, MessageSquare, Info, ChevronRight, UserCircle, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -30,7 +30,7 @@ interface DBMessage {
 
 interface CaseData {
   case: {
-    id: number;
+    id: string;
     status: string;
     case_file: string | null;
     client_id: number;
@@ -53,21 +53,21 @@ function formatTime(ts?: string): string {
 
 export default function CaseDetails({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const caseId = parseInt(id);
+  const caseId = id;
   const [data, setData] = useState<CaseData | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [intakeInput, setIntakeInput] = useState('');
   const [isIntakeSending, setIsIntakeSending] = useState(false);
   const [intakeReady, setIntakeReady] = useState(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected, isThinking, error, clearError } = useCaseChat(caseId);
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const storeCase = useCaseStore((state) => state.cases.find(c => c.id === caseId));
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
   const fetchData = React.useCallback(() => {
-    axios.get(`${apiUrl}/cases/${id}`)
+    setForbidden(false);
+    api.get(`/cases/${id}`)
       .then(res => {
         setData(res.data);
         const existingAssists = res.data.messages
@@ -75,8 +75,14 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
           .map((m: any) => ({ role: m.sender_role, content: m.content, timestamp: m.timestamp }));
         setChatMessages(existingAssists);
       })
-      .catch(err => console.error(err));
-  }, [apiUrl, id, setChatMessages]);
+      .catch(err => {
+        if (err?.response?.status === 403) {
+          setForbidden(true);
+        } else {
+          console.error(err);
+        }
+      });
+  }, [id, setChatMessages]);
 
   useEffect(() => {
     fetchData();
@@ -113,7 +119,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
       messages: [...prev.messages, { sender_role: 'client', content: msg, timestamp: clientTs }]
     } : prev);
     try {
-      const res = await axios.post(`${apiUrl}/cases/${id}/intake/chat`, { message: msg });
+      const res = await api.post(`/cases/${id}/intake/chat`, { message: msg });
       setData(prev => prev ? {
         ...prev,
         messages: [...prev.messages, { sender_role: 'ai_intake', content: res.data.response, timestamp: new Date().toISOString() }]
@@ -129,13 +135,22 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
 
   const handleIntakeConfirm = async () => {
     try {
-      await axios.post(`${apiUrl}/cases/${id}/intake/confirm`);
+      await api.post(`/cases/${id}/intake/confirm`);
       setData(prev => prev ? { ...prev, case: { ...prev.case, status: 'researching' } } : prev);
       useCaseStore.getState().updateCaseStatus(caseId, 'researching');
     } catch (e: any) {
       setIntakeError(e?.response?.data?.detail || 'Ошибка подтверждения');
     }
   };
+
+  if (forbidden) return (
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center space-y-3">
+        <div className="text-4xl font-bold text-gray-300">403</div>
+        <p className="text-sm text-gray-500">Нет доступа к этому делу</p>
+      </div>
+    </div>
+  );
 
   if (!data) return (
     <div className="flex items-center justify-center h-full text-muted-foreground animate-pulse">
