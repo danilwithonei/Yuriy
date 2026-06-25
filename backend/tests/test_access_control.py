@@ -10,13 +10,13 @@ MISSING_UUID = "cccccccc-cccc-4ccc-cccc-cccccccccccc"
 
 def _mock_case(respx_mock, case_id: str, lawyer_id: int):
     respx_mock.get(f"{INTAKE_URL}/case/{case_id}").mock(return_value=Response(200, json={
-        "case": {"id": case_id, "client_id": 1, "lawyer_id": lawyer_id, "status": "open", "case_type": "direct"},
+        "case": {"id": case_id, "client_id": 1, "lawyer_id": lawyer_id, "status": "open", "case_type": "direct", "title": None, "summary": None},
         "messages": []
     }))
 
 def _mock_case_no_lawyer(respx_mock, case_id: str):
     respx_mock.get(f"{INTAKE_URL}/case/{case_id}").mock(return_value=Response(200, json={
-        "case": {"id": case_id, "client_id": 1, "lawyer_id": None, "status": "open", "case_type": "direct"},
+        "case": {"id": case_id, "client_id": 1, "lawyer_id": None, "status": "open", "case_type": "direct", "title": None, "summary": None},
         "messages": []
     }))
 

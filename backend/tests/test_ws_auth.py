@@ -34,7 +34,7 @@ class TestWebSocketAuth:
     @respx.mock
     def test_ws_foreign_case_forbidden(self, client, auth_headers, respx_mock):
         respx_mock.get(f"{INTAKE_URL}/case/{CASE_UUID}").mock(return_value=Response(200, json={
-            "case": {"id": CASE_UUID, "lawyer_id": 999},
+            "case": {"id": CASE_UUID, "lawyer_id": 999, "title": None, "summary": None},
             "messages": []
         }))
         token = auth_headers["Authorization"].split(" ")[1]
@@ -46,13 +46,17 @@ class TestWebSocketAuth:
     @respx.mock
     def test_ws_own_case_works(self, client, auth_headers, respx_mock):
         respx_mock.get(f"{INTAKE_URL}/case/{CASE_UUID}").mock(return_value=Response(200, json={
-            "case": {"id": CASE_UUID, "lawyer_id": 1, "case_file": "Dossier", "case_type": "direct"},
+            "case": {"id": CASE_UUID, "lawyer_id": 1, "case_file": "Dossier", "case_type": "direct", "title": None, "summary": None},
             "messages": []
         }))
-        respx_mock.post(f"{LAWYER_URL}/analyze").mock(return_value=Response(200, json={"response": "OK"}))
+        sse_body = b"data: {\"token\": \"OK\"}\n\ndata: {\"done\": true}\n\n"
+        respx_mock.post(f"{LAWYER_URL}/analyze").mock(return_value=Response(200, content=sse_body))
         token = auth_headers["Authorization"].split(" ")[1]
         with client.websocket_connect(f"/ws/cases/{CASE_UUID}/chat?token={token}") as ws:
             ws.send_json({"message": "Hi"})
             ws.receive_json()  # AI_THINKING
-            resp = ws.receive_json()  # AI_RESPONSE
-            assert resp["type"] == "AI_RESPONSE"
+            while True:
+                msg = ws.receive_json()
+                if msg["type"] == "AI_RESPONSE":
+                    assert msg["content"] == "OK"
+                    break

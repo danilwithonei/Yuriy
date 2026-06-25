@@ -18,6 +18,8 @@ class Case(SQLModel, table=True):
     case_type: str = Field(default="intake")  # "intake" | "direct"
     status: str = Field(default="open")  # "open", "researching", "ready", "closed"
     case_file: Optional[str] = None  # Markdown report
+    title: Optional[str] = None  # Название дела (генер. LLM)
+    summary: Optional[str] = None  # Краткое описание дела
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Message(SQLModel, table=True):

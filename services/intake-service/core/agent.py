@@ -1,71 +1,93 @@
-import asyncio
-from typing import Dict, Any, Tuple
+from typing import AsyncGenerator, Tuple, Dict, Any
 from langchain_core.messages import HumanMessage
 from graph import app_graph
-from core.state import AgentState
+from modules.research.node import research_node
+from modules.compiler.node import compiler_node
+from core.logger import logger
+
 
 class AgentService:
     @staticmethod
-    async def handle_user_message(case_id: str, message: str) -> Tuple[Dict[str, Any], bool]:
-        """
-        Обрабатывает сообщение от пользователя, запуская или продолжая граф.
-        Возвращает (output_state, is_ready).
-        """
+    async def handle_user_message_stream(case_id: str, message: str) -> AsyncGenerator[Tuple[str, Any], None]:
         config = {"configurable": {"thread_id": str(case_id)}}
-        loop = asyncio.get_event_loop()
-        
-        # Проверяем текущее состояние графа
-        current_state = await loop.run_in_executor(None, lambda: app_graph.get_state(config))
-        
+
+        current_state = app_graph.get_state(config)
+
         if current_state.next and "wait_for_input" in current_state.next:
-            # Если граф ждет ввода, обновляем состояние и продолжаем
-            await loop.run_in_executor(None, lambda: app_graph.update_state(
-                config, 
+            app_graph.update_state(
+                config,
                 {"messages": [HumanMessage(content=message)]},
                 as_node="wait_for_input"
-            ))
-            output = await loop.run_in_executor(None, lambda: app_graph.invoke(None, config=config))
+            )
+            invoke_input = None
         else:
-            # Если это начало или другое состояние
-            input_state = {
+            invoke_input = {
                 "messages": [HumanMessage(content=message)],
                 "case_id": case_id
             }
-            output = await loop.run_in_executor(None, lambda: app_graph.invoke(input_state, config=config))
-            
-        # Проверяем, остановился ли граф перед исследованием
-        final_state = await loop.run_in_executor(None, lambda: app_graph.get_state(config))
-        is_ready = final_state.next and "research" in final_state.next
-        
-        return output, is_ready
+
+        buffer = ""
+        try:
+            async for event in app_graph.astream_events(invoke_input, config=config, version="v1"):
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    node = event.get("metadata", {}).get("langgraph_node", "")
+                    if node == "intake":
+                        content = event["data"]["chunk"].content
+                        if content:
+                            buffer += content
+                            # Выплёвываем только законченные строки без [IS_READY:
+                            while "\n" in buffer:
+                                line, buffer = buffer.split("\n", 1)
+                                if "[IS_READY:" not in line:
+                                    yield ("token", line + "\n")
+        except Exception as e:
+            logger.error(f"Graph stream error for case_id={case_id}: {e}")
+            raise
+        else:
+            if buffer and "[IS_READY:" not in buffer:
+                yield ("token", buffer)
+
+        final_state = app_graph.get_state(config)
+        is_ready = bool(final_state.next and "research" in final_state.next)
+        output = final_state.values
+        yield ("result", (output, is_ready))
 
     @staticmethod
     async def confirm_and_resume(case_id: str) -> bool:
-        """
-        Устанавливает флаг подтверждения и запускает продолжение графа.
-        """
         config = {"configurable": {"thread_id": str(case_id)}}
-        loop = asyncio.get_event_loop()
-        
-        # Обновляем состояние флагом подтверждения
-        await loop.run_in_executor(None, lambda: app_graph.update_state(
-            config, 
+
+        app_graph.update_state(
+            config,
             {"is_confirmed": True}
-        ))
-        
-        # В основном процессе мы не вызываем invoke, так как исследование идет в фоне.
-        # Этот метод просто подготавливает состояние.
+        )
+
         return True
 
     @staticmethod
     async def run_background_research(case_id: str) -> Dict[str, Any]:
-        """
-        Запускает выполнение графа с места прерывания (research).
-        Используется в фоновых задачах.
-        """
         config = {"configurable": {"thread_id": str(case_id)}}
-        loop = asyncio.get_event_loop()
-        
-        # Продолжаем выполнение (исследование + компиляция)
-        output = await loop.run_in_executor(None, lambda: app_graph.invoke(None, config=config))
-        return output
+        state = app_graph.get_state(config)
+        current = dict(state.values)
+
+        # На всякий случай проверяем, не запущен ли уже research через граф (ainvoke)
+        if not current.get("research_results"):
+            logger.info(f"Direct research call for case_id={case_id}: running research_node + compiler_node")
+            try:
+                research_out = research_node(current)
+                current.update(research_out)
+                app_graph.update_state(config, research_out)
+
+                compiler_out = compiler_node(current)
+                current.update(compiler_out)
+                app_graph.update_state(config, compiler_out)
+            except Exception as e:
+                logger.error(f"Research/compiler failed for case_id={case_id}: {e}")
+                return {}
+
+        return {
+            "case_file": current.get("case_file"),
+            "case_title": current.get("case_title"),
+            "case_summary": current.get("case_summary"),
+            "research_results": current.get("research_results"),
+        }

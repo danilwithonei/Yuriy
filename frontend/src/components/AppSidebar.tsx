@@ -93,8 +93,13 @@ export function AppSidebar() {
                         >
                           <div className="flex items-center gap-3 w-full">
                             <CaseIcon className={`h-4 w-4 shrink-0 ${accent}`} />
-                            <div className="flex-1 truncate text-sm">
-                              {c.case_type === 'direct' ? 'Чат' : 'Дело'} №{c.id}
+                            <div className="flex-1 min-w-0">
+                              <div className="truncate text-sm">
+                                {c.title || (c.case_type === 'direct' ? 'Чат' : 'Дело') + ' №' + c.id.slice(0, 8)}
+                              </div>
+                              {c.summary && (
+                                <div className="truncate text-[11px] text-gray-400 mt-0.5">{c.summary}</div>
+                              )}
                             </div>
                             <div 
                               className={`h-2 w-2 rounded-full shrink-0 ${getStatusColor(c.status)}`} 

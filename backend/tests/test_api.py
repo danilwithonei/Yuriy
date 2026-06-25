@@ -29,7 +29,7 @@ def test_list_cases_timeout(client, auth_headers, respx_mock):
 @respx.mock
 def test_get_case_details_success(client, auth_headers, respx_mock):
     respx_mock.get(f"{INTAKE_URL}/case/{CASE_ID}").mock(return_value=Response(200, json={
-        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs"},
+        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs", "title": None, "summary": None},
         "messages": [{"sender_role": "user", "content": "Hello"}]
     }))
     respx_mock.get(f"{LAWYER_URL}/messages/{CASE_ID}").mock(return_value=Response(200, json=[
@@ -51,7 +51,7 @@ def test_get_case_not_found(client, auth_headers, respx_mock):
 @respx.mock
 def test_get_case_lawyer_service_fails(client, auth_headers, respx_mock):
     respx_mock.get(f"{INTAKE_URL}/case/{CASE_ID}").mock(return_value=Response(200, json={
-        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs"},
+        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs", "title": None, "summary": None},
         "messages": [{"sender_role": "user", "content": "Hello"}]
     }))
     respx_mock.get(f"{LAWYER_URL}/messages/{CASE_ID}").mock(return_value=Response(500))
@@ -64,10 +64,10 @@ def test_get_case_lawyer_service_fails(client, auth_headers, respx_mock):
 @respx.mock
 def test_assist_case_success(client, auth_headers, respx_mock):
     respx_mock.get(f"{INTAKE_URL}/case/{CASE_ID}").mock(return_value=Response(200, json={
-        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs"},
+        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs", "title": None, "summary": None},
         "messages": [{"sender_role": "user", "content": "Help"}]
     }))
-    respx_mock.post(f"{LAWYER_URL}/analyze").mock(return_value=Response(200, json={"response": "Analysis"}))
+    respx_mock.post(f"{LAWYER_URL}/analyze").mock(return_value=Response(200, content=b"data: {\"token\": \"Analysis\"}\n\ndata: {\"done\": true}\n\n"))
     response = client.post(f"/cases/{CASE_ID}/assist", json={"message": "Analyze this"}, headers=auth_headers)
     assert response.status_code == 200
     assert response.json()["response"] == "Analysis"
@@ -75,7 +75,7 @@ def test_assist_case_success(client, auth_headers, respx_mock):
 @respx.mock
 def test_assist_case_lawyer_timeout(client, auth_headers, respx_mock):
     respx_mock.get(f"{INTAKE_URL}/case/{CASE_ID}").mock(return_value=Response(200, json={
-        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs"},
+        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_file": "Docs", "title": None, "summary": None},
         "messages": []
     }))
     respx_mock.post(f"{LAWYER_URL}/analyze").mock(side_effect=ConnectTimeout)

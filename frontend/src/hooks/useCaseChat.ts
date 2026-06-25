@@ -14,8 +14,10 @@ export function useCaseChat(caseId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [streamingContent, setStreamingContent] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const streamBufRef = useRef<string>('');
 
   const token = useAuthStore((s) => s.token);
 
@@ -35,13 +37,23 @@ export function useCaseChat(caseId: string) {
       const data = JSON.parse(event.data);
       if (data.type === 'AI_THINKING') {
         setIsThinking(true);
+        streamBufRef.current = '';
+        setStreamingContent('');
+        setError(null);
+      } else if (data.type === 'AI_TOKEN') {
+        streamBufRef.current += data.token;
+        setStreamingContent(streamBufRef.current);
         setError(null);
       } else if (data.type === 'AI_RESPONSE') {
         setIsThinking(false);
-        setError(null);
+        streamBufRef.current = '';
+        setStreamingContent('');
         setMessages((prev) => [...prev, { role: 'ai_case', content: data.content, timestamp: new Date().toISOString() }]);
+        setError(null);
       } else if (data.type === 'AI_ERROR') {
         setIsThinking(false);
+        streamBufRef.current = '';
+        setStreamingContent('');
         setError(data.error || 'Unknown error');
       }
     };
@@ -49,6 +61,8 @@ export function useCaseChat(caseId: string) {
     socket.onclose = () => {
       setIsConnected(false);
       setIsThinking(false);
+      streamBufRef.current = '';
+      setStreamingContent('');
       setError('Connection lost');
       console.log(`Disconnected from Case ${caseId} WebSocket`);
     };
@@ -68,5 +82,5 @@ export function useCaseChat(caseId: string) {
 
   const clearError = useCallback(() => setError(null), []);
 
-  return { messages, setMessages, isConnected, isThinking, error, sendMessage, clearError };
+  return { messages, setMessages, isConnected, isThinking, streamingContent, error, sendMessage, clearError };
 }

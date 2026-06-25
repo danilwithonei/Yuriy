@@ -13,7 +13,7 @@ def get_llm(model_name: str = None):
         model=model_name or os.getenv("LLM_MODEL", "qwen3.7-plus"),
         openai_api_key=os.getenv("DASHSCOPE_API_KEY"),
         openai_api_base=f"https://{base_host}/compatible-mode/v1",
-        timeout=60
+        timeout=int(os.getenv("LLM_TIMEOUT", "300"))
     )
 
 # Дефолтный экземпляр для переиспользования

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, use, useRef } from 'react';
-import api from '@/lib/api';
+import api, { API_URL } from '@/lib/api';
 import { Send, User, Bot, History, FileText, MessageSquare, Info, ChevronRight, UserCircle, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -35,6 +35,8 @@ interface CaseData {
     case_file: string | null;
     client_id: number;
     case_type: string;
+    title?: string | null;
+    summary?: string | null;
   };
   messages: DBMessage[];
 }
@@ -60,8 +62,9 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
   const [isIntakeSending, setIsIntakeSending] = useState(false);
   const [intakeReady, setIntakeReady] = useState(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [streamingIntakeContent, setStreamingIntakeContent] = useState('');
   const [forbidden, setForbidden] = useState(false);
-  const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected, isThinking, error, clearError } = useCaseChat(caseId);
+  const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected, isThinking, streamingContent, error, clearError } = useCaseChat(caseId);
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const storeCase = useCaseStore((state) => state.cases.find(c => c.id === caseId));
@@ -112,6 +115,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
     setIntakeInput('');
     setIsIntakeSending(true);
     setIntakeError(null);
+    setStreamingIntakeContent('');
     // Показываем сообщение клиента сразу (optimistic)
     const clientTs = new Date().toISOString();
     setData(prev => prev ? {
@@ -119,15 +123,59 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
       messages: [...prev.messages, { sender_role: 'client', content: msg, timestamp: clientTs }]
     } : prev);
     try {
-      const res = await api.post(`/cases/${id}/intake/chat`, { message: msg });
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/cases/${id}/intake/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ message: msg })
+      });
+      if (!response.ok) {
+        let errMsg = 'Ошибка отправки';
+        try { errMsg = (await response.json()).detail; } catch {}
+        throw new Error(errMsg);
+      }
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullContent = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let data;
+          try { data = JSON.parse(line.slice(6)); } catch { continue; }
+          if (data.token) {
+            fullContent += data.token;
+            setStreamingIntakeContent(fullContent);
+          } else if (data.response) {
+            fullContent = data.response;
+            setStreamingIntakeContent(fullContent);
+          } else if (data.is_ready !== undefined) {
+            setIntakeReady(data.is_ready);
+          } else if (data.done) {
+            if (data.is_ready !== undefined) setIntakeReady(data.is_ready);
+          } else if (data.error) {
+            throw new Error(data.error);
+          }
+        }
+      }
+      // Финализируем: добавляем сообщение в список
+      setStreamingIntakeContent('');
       setData(prev => prev ? {
         ...prev,
-        messages: [...prev.messages, { sender_role: 'ai_intake', content: res.data.response, timestamp: new Date().toISOString() }]
+        messages: [...prev.messages, { sender_role: 'ai_intake', content: fullContent, timestamp: new Date().toISOString() }]
       } : prev);
-      setIntakeReady(res.data.is_ready);
     } catch (e: any) {
-      const errMsg = e?.response?.data?.detail || 'Ошибка отправки';
+      const errMsg = e?.message || 'Ошибка отправки';
       setIntakeError(errMsg);
+      setStreamingIntakeContent('');
     } finally {
       setIsIntakeSending(false);
     }
@@ -172,7 +220,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
       {/* Шапка чата */}
       <div className="h-14 border-b dark:border-gray-800 px-6 flex items-center justify-between sticky top-0 z-10 bg-white/80 dark:bg-[#171717]/80 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <h1 className="font-semibold text-sm">{isDirect ? 'Чат' : 'Дело'} №{id}</h1>
+          <h1 className="font-semibold text-sm">{data.case.title || (isDirect ? 'Чат' : 'Дело') + ' №' + id.slice(0, 8)}</h1>
           {isIntakeMode && (
             <>
               <div className="h-2 w-2 rounded-full bg-amber-500" />
@@ -320,12 +368,19 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
                       </Avatar>
                       <div className="flex-1 space-y-2 overflow-hidden">
                         <div className="font-semibold text-sm">ИИ-Приёмщик</div>
-                        <div className="flex items-center gap-1.5 py-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.3s]" />
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.15s]" />
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce" />
-                          <span className="text-xs text-gray-400 ml-2 font-medium">Анализирует...</span>
-                        </div>
+                        {streamingIntakeContent ? (
+                          <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200">
+                            {streamingIntakeContent}
+                            <span className="inline-block w-1.5 h-4 bg-amber-500 ml-0.5 animate-pulse" />
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 py-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce" />
+                            <span className="text-xs text-gray-400 ml-2 font-medium">Анализирует...</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -472,11 +527,19 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
                   </Avatar>
                   <div className="flex-1 space-y-2 overflow-hidden">
                     <div className="font-semibold text-sm">ИИ-Ассистент</div>
-                    <div className="flex items-center gap-1.5 py-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.3s]" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.15s]" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce" />
-                      <span className="text-xs text-gray-400 ml-2 font-medium">Ищет информацию...</span>
+                    <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none">
+                      {streamingContent ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {streamingContent}
+                        </ReactMarkdown>
+                      ) : (
+                        <div className="flex items-center gap-1.5 py-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.3s]" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.15s]" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce" />
+                          <span className="text-xs text-gray-400 ml-2 font-medium">Ищет информацию...</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

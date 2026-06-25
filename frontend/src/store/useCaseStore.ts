@@ -9,6 +9,8 @@ export interface Case {
   case_type: 'intake' | 'direct';
   created_at: string;
   case_file?: string;
+  title?: string;
+  summary?: string;
 }
 
 interface CaseState {
@@ -41,6 +43,12 @@ export const useCaseStore = create<CaseState>((set) => ({
     )
   })),
 
+  updateCaseMeta: (caseId, meta) => set((state) => ({
+    cases: state.cases.map((c) =>
+      c.id === caseId ? { ...c, ...meta } : c
+    )
+  })),
+
   setActiveCaseId: (id) => set({ activeCaseId: id }),
 
   fetchCases: async () => {
@@ -64,6 +72,7 @@ export const useCaseStore = create<CaseState>((set) => ({
       status: 'open',
       case_type: case_type || type,
       created_at: new Date().toISOString(),
+      title: type === 'direct' ? 'Чат' : undefined,
     };
     set((state) => ({
       cases: [newCase, ...state.cases],

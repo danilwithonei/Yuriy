@@ -1,8 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 from typing import Optional, List
 import os
+import json
 import httpx
 import uvicorn
 
@@ -38,13 +40,16 @@ def _seed_default_lawyer():
         session.commit()
         logger.info("Seeded default lawyer user")
 
-async def _notify_gateway(case_id: str, status: str):
+async def _notify_gateway(case_id: str, status: str, title: str | None = None, summary: str | None = None):
     gateway_url = os.getenv("GATEWAY_URL", "http://backend:8000")
     async with httpx.AsyncClient() as client:
         try:
-            await client.post(f"{gateway_url}/internal/case-updated", json={
-                "case_id": case_id, "status": status
-            }, timeout=5.0)
+            body = {"case_id": case_id, "status": status}
+            if title is not None:
+                body["title"] = title
+            if summary is not None:
+                body["summary"] = summary
+            await client.post(f"{gateway_url}/internal/case-updated", json=body, timeout=5.0)
             logger.info(f"Gateway notified: case {case_id} -> {status}")
         except Exception as e:
             logger.warning(f"Failed to notify gateway for case {case_id}: {e}")
@@ -62,17 +67,19 @@ async def run_research_task(case_id: str):
         if case:
             if output.get("case_file"):
                 case.case_file = output["case_file"]
+                case.title = output.get("case_title") or case.title
+                case.summary = output.get("case_summary")
                 case.status = "ready"
                 logger.info(f"Research completed for case_id={case_id}")
             else:
                 messages = session.exec(select(Message).where(Message.case_id == case_id)).all()
-                summary = "\n".join([f"{m.sender_role}: {m.content}" for m in messages])
-                case.case_file = f"Исследование не завершилось, собранные данные:\n\n{summary}"
+                fallback = "\n".join([f"{m.sender_role}: {m.content}" for m in messages])
+                case.case_file = f"Исследование не завершилось, собранные данные:\n\n{fallback}"
                 case.status = "ready"
                 logger.warning(f"Research incomplete, fallback for case_id={case_id}")
             session.add(case)
             session.commit()
-            await _notify_gateway(case_id, "ready")
+            await _notify_gateway(case_id, "ready", title=case.title, summary=case.summary)
 
 class CreateCaseRequest(BaseModel):
     case_type: str = "intake"
@@ -123,6 +130,10 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
     if case_id:
         existing_case = session.get(Case, case_id)
         if existing_case and existing_case.case_type == "direct":
+            if not existing_case.title:
+                existing_case.title = request.message[:50]
+                session.add(existing_case)
+                session.commit()
             msg = Message(case_id=case_id, sender_role="client", content=request.message, source=request.source)
             session.add(msg)
             session.commit()
@@ -159,31 +170,51 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
         session.commit()
         session.refresh(case)
         case_id = case.id
+        # Предзаполняем title из первого сообщения как временный
+        case.title = request.message[:50]
+        session.add(case)
+        session.commit()
         logger.info(f"Created new case with id={case_id}")
     
-    # Сохраняем сообщение
+    # Сохраняем сообщение клиента
     msg = Message(case_id=case_id, sender_role="client", content=request.message, source=request.source)
     session.add(msg)
     session.commit()
 
-    # Работаем с графом через сервис
-    logger.info(f"Invoking graph for case_id={case_id}")
-    output, is_ready = await AgentService.handle_user_message(case_id, request.message)
-    
-    # Сохраняем ответ ИИ
-    ai_msg_content = output["messages"][-1].content
-    ai_msg = Message(case_id=case_id, sender_role="ai_intake", content=ai_msg_content, source=request.source)
-    session.add(ai_msg)
-    session.commit()
+    logger.info(f"Streaming from Intake Agent for case_id={case_id}")
 
-    logger.info(f"Graph execution paused. is_ready={is_ready}")
+    async def generate():
+        full_response = ""
+        stream_count = 0
+        try:
+            async for event in AgentService.handle_user_message_stream(case_id, request.message):
+                kind = event[0]
+                if kind == "token":
+                    token = event[1]
+                    full_response += token
+                    stream_count += 1
+                    if stream_count % 5 == 0:
+                        logger.info(f"Intake token #{stream_count} for case_id={case_id} (+{len(token)} chars, total {len(full_response)})")
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+                elif kind == "result":
+                    _, (output, is_ready) = event
+                    logger.info(f"Intake stream done for case_id={case_id}: {stream_count} events, {len(full_response)} chars, is_ready={is_ready}")
+                    # Сохраняем ответ ИИ в отдельной сессии
+                    ai_msg_content = output["messages"][-1].content
+                    try:
+                        with Session(engine) as save_session:
+                            ai_msg = Message(case_id=case_id, sender_role="ai_intake", content=ai_msg_content, source=request.source)
+                            save_session.add(ai_msg)
+                            save_session.commit()
+                        logger.info(f"AI intake message saved for case_id={case_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to save AI intake message for case_id={case_id}: {e}")
+                    yield f"data: {json.dumps({'done': True, 'is_ready': is_ready})}\n\n"
+        except Exception as e:
+            logger.error(f"Intake streaming failed for case_id={case_id}: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-    return {
-        "case_id": case_id,
-        "response": ai_msg_content,
-        "is_ready": is_ready,
-        "status": "collecting"
-    }
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 class ConfirmRequest(BaseModel):
     case_id: str
@@ -204,6 +235,7 @@ async def confirm(request: ConfirmRequest, background_tasks: BackgroundTasks, se
     
     logger.info(f"Case {case_id} status updated to researching. Triggering background task.")
     background_tasks.add_task(run_research_task, case_id)
+    await _notify_gateway(case_id, "researching", title=case.title, summary=case.summary)
     return {"status": "researching"}
 
 @app.get("/cases", response_model=List[Case])

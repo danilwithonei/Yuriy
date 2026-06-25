@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlmodel import Session
+import json
 from ws_manager import manager
 from core.logger import logger
 import os
@@ -33,6 +35,8 @@ LAWYER_SERVICE_URL = os.getenv("LAWYER_SERVICE_URL", "http://lawyer-service:8002
 class CaseUpdatedRequest(BaseModel):
     case_id: str
     status: str
+    title: str | None = None
+    summary: str | None = None
 
 class CreateCaseRequest(BaseModel):
     type: str = "direct"
@@ -49,11 +53,16 @@ def read_root():
 @app.post("/internal/case-updated")
 async def case_updated(request: CaseUpdatedRequest):
     logger.info(f"Case {request.case_id} status updated to {request.status}, broadcasting")
-    await manager.broadcast_dashboard({
+    msg = {
         "type": "CASE_STATUS_UPDATED",
         "case_id": request.case_id,
         "status": request.status
-    })
+    }
+    if request.title is not None:
+        msg["title"] = request.title
+    if request.summary is not None:
+        msg["summary"] = request.summary
+    await manager.broadcast_dashboard(msg)
     return {"ok": True}
 
 # ─── Auth endpoints ───────────────────────────────────────────────
@@ -202,36 +211,58 @@ async def websocket_case_chat(websocket: WebSocket, case_id: str):
 
                     await manager.send_case_message(case_id, {"type": "AI_THINKING", "sender": "ai_case"})
 
-                    logger.info(f"Calling Lawyer Assistant for case_id={case_id}")
+                    logger.info(f"Streaming from Lawyer Assistant for case_id={case_id}")
                     try:
-                        assist_res = await client.post(f"{LAWYER_SERVICE_URL}/analyze", json={
+                        async with client.stream("POST", f"{LAWYER_SERVICE_URL}/analyze", json={
                             "case_id": case_id,
                             "case_file": case_file,
                             "history": intake_history,
                             "query": message_text,
                             "search_web": is_direct
-                        }, timeout=60.0)
+                        }, timeout=120.0) as assist_res:
+                            if assist_res.status_code != 200:
+                                try:
+                                    error_body = await assist_res.aread()
+                                    error_detail = error_body.json().get("detail", "Lawyer Assistant Service error")
+                                except Exception:
+                                    error_detail = "Lawyer Assistant Service error"
+                                logger.error(f"Lawyer Assistant error for case_id={case_id}: {error_detail}")
+                                await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": error_detail})
+                                continue
 
-                        if assist_res.status_code != 200:
-                            error_detail = assist_res.json().get("detail", "Lawyer Assistant Service error")
-                            logger.error(f"Lawyer Assistant error for case_id={case_id}: {error_detail}")
-                            await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": error_detail})
-                            continue
-
-                        assist_data = assist_res.json()
-                        ai_content = assist_data.get("response")
-                        if not ai_content:
-                            logger.error(f"Empty response from Lawyer Assistant for case_id={case_id}")
-                            await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": "Empty response from assistant"})
-                            continue
-
-                        logger.info(f"AI response received for case_id={case_id}")
-
-                        await manager.send_case_message(case_id, {
-                            "type": "AI_RESPONSE",
-                            "content": ai_content,
-                            "sender": "ai_case"
-                        })
+                            logger.info(f"SSE stream started for case_id={case_id}, status={assist_res.status_code}")
+                            full_content = ""
+                            sse_count = 0
+                            async for line in assist_res.aiter_lines():
+                                if line.startswith("data: "):
+                                    payload = line[6:]
+                                    if not payload.strip():
+                                        continue
+                                    try:
+                                        data = json.loads(payload)
+                                    except json.JSONDecodeError:
+                                        logger.warning(f"SSE parse error for case_id={case_id}: {line[:100]}")
+                                        continue
+                                    if "token" in data:
+                                        full_content += data["token"]
+                                        sse_count += 1
+                                        if sse_count % 5 == 0:
+                                            logger.info(f"SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_content)})")
+                                        await manager.send_case_message(case_id, {
+                                            "type": "AI_TOKEN",
+                                            "token": data["token"]
+                                        })
+                                    elif "error" in data:
+                                        logger.error(f"SSE error for case_id={case_id}: {data['error']}")
+                                        await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": data["error"]})
+                                        break
+                                    elif data.get("done"):
+                                        logger.info(f"SSE done for case_id={case_id}: {sse_count} events, {len(full_content)} chars")
+                                        await manager.send_case_message(case_id, {
+                                            "type": "AI_RESPONSE",
+                                            "content": full_content,
+                                            "sender": "ai_case"
+                                        })
                     except Exception as e:
                         logger.error(f"Failed to reach Lawyer Assistant Service: {e}")
                         await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": "Lawyer Assistant Service unavailable"})
@@ -285,14 +316,41 @@ async def assist_case(case_id: str, request: AssistRequest, lawyer_id: int = Dep
     async with httpx.AsyncClient() as client:
         try:
             logger.info(f"Analyzing case {case_id} for manual assist")
-            assist_res = await client.post(f"{LAWYER_SERVICE_URL}/analyze", json={
+            async with client.stream("POST", f"{LAWYER_SERVICE_URL}/analyze", json={
                 "case_id": case_id,
                 "case_file": case_data["case"].get("case_file") or "Досье еще не сформировано.",
                 "history": "\n".join([f"{m['sender_role']}: {m['content']}" for m in case_data["messages"]]),
                 "query": request.message
-            }, timeout=60.0)
-            
-            return assist_res.json()
+            }, timeout=120.0) as assist_res:
+                logger.info(f"REST SSE stream started for case_id={case_id}, status={assist_res.status_code}")
+                full_content = ""
+                sse_count = 0
+                async for line in assist_res.aiter_lines():
+                    if line.startswith("data: "):
+                        payload = line[6:]
+                        if not payload.strip():
+                            continue
+                        try:
+                            data = json.loads(payload)
+                        except json.JSONDecodeError:
+                            logger.warning(f"REST SSE parse error for case_id={case_id}: {line[:100]}")
+                            continue
+                        if "token" in data:
+                            full_content += data["token"]
+                            sse_count += 1
+                            if sse_count % 5 == 0:
+                                logger.info(f"REST SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_content)})")
+                        elif "error" in data:
+                            logger.error(f"REST SSE error for case_id={case_id}: {data['error']}")
+                            raise HTTPException(status_code=502, detail=data["error"])
+                        elif data.get("done"):
+                            logger.info(f"REST SSE done for case_id={case_id}: {sse_count} events, {len(full_content)} chars")
+                            break
+                return {"response": full_content}
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="Lawyer Assistant Service unavailable")
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error in manual assist for case {case_id}: {e}")
             raise HTTPException(status_code=502, detail=f"Service Communication Error: {str(e)}")
@@ -301,25 +359,64 @@ async def assist_case(case_id: str, request: AssistRequest, lawyer_id: int = Dep
 async def intake_chat(case_id: str, request: AssistRequest, lawyer_id: int = Depends(get_current_lawyer)):
     await _verify_ownership(case_id, lawyer_id)
     logger.info(f"Intake chat for case_id={case_id}: {request.message[:50]}...")
-    async with httpx.AsyncClient() as client:
-        try:
-            res = await client.post(f"{INTAKE_SERVICE_URL}/chat", json={
+
+    async def generate():
+        async with httpx.AsyncClient() as client:
+            async with client.stream("POST", f"{INTAKE_SERVICE_URL}/chat", json={
                 "external_id": "lawyer_default",
                 "source": "frontend",
                 "case_id": case_id,
                 "message": request.message
-            }, timeout=120.0)
-            if res.status_code != 200:
-                error_detail = res.json().get("detail", "Intake Service error")
-                raise HTTPException(status_code=502, detail=error_detail)
-            return res.json()
-        except httpx.RequestError:
-            raise HTTPException(status_code=502, detail="Intake Service unavailable")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Error in intake chat for case {case_id}: {e}")
-            raise HTTPException(status_code=502, detail=f"Service Error: {str(e)}")
+            }, timeout=120.0) as res:
+                if res.status_code != 200:
+                    try:
+                        error_body = await res.aread()
+                        error_detail = error_body.json().get("detail", "Intake Service error")
+                    except Exception:
+                        error_detail = "Intake Service error"
+                    yield f"data: {json.dumps({'error': error_detail})}\n\n"
+                    return
+
+                content_type = res.headers.get("content-type", "")
+                is_sse = "text/event-stream" in content_type
+
+                if not is_sse:
+                    body = await res.aread()
+                    data = body.json()
+                    yield f"data: {json.dumps({'response': data.get('response'), 'is_ready': data.get('is_ready', False)})}\n\n"
+                    yield f"data: {json.dumps({'done': True})}\n\n"
+                    return
+
+                logger.info(f"Intake SSE stream started for case_id={case_id}")
+                full_response = ""
+                sse_count = 0
+
+                async for line in res.aiter_lines():
+                    if line.startswith("data: "):
+                        payload = line[6:]
+                        if not payload.strip():
+                            continue
+                        try:
+                            data = json.loads(payload)
+                        except json.JSONDecodeError:
+                            logger.warning(f"Intake SSE parse error for case_id={case_id}: {line[:100]}")
+                            continue
+                        if "token" in data:
+                            full_response += data["token"]
+                            sse_count += 1
+                            if sse_count % 5 == 0:
+                                logger.info(f"Intake SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_response)})")
+                            yield f"data: {json.dumps(data)}\n\n"
+                        elif "error" in data:
+                            logger.error(f"Intake SSE error for case_id={case_id}: {data['error']}")
+                            yield f"data: {json.dumps(data)}\n\n"
+                            return
+                        elif data.get("done"):
+                            logger.info(f"Intake SSE done for case_id={case_id}: {sse_count} events, {len(full_response)} chars")
+                            yield f"data: {json.dumps(data)}\n\n"
+                            return
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.post("/cases/{case_id}/intake/confirm")
 async def intake_confirm(case_id: str, lawyer_id: int = Depends(get_current_lawyer)):

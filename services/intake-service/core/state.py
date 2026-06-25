@@ -9,3 +9,5 @@ class AgentState(TypedDict):
     extracted_data: Dict[str, Any]
     research_results: str
     case_file: str
+    case_title: str
+    case_summary: str

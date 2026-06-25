@@ -14,7 +14,7 @@ function getWsUrl(): string {
   return 'ws://localhost:8000';
 }
 
-const API_URL = getApiUrl();
+export const API_URL = getApiUrl();
 export const WS_BASE_URL = getWsUrl();
 
 const api = axios.create({

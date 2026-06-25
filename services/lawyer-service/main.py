@@ -1,4 +1,6 @@
+import json
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 from core.llm import get_llm
@@ -10,7 +12,7 @@ except ImportError:
     from langchain_community.tools.tavily_search import TavilySearchResults
 from prompts import ASSISTANT_PROMPT
 from models import Message, Case
-from database import create_db_and_tables, get_session
+from database import create_db_and_tables, get_session, engine
 import os
 import uvicorn
 
@@ -37,65 +39,80 @@ def read_root():
 @app.post("/analyze")
 async def analyze_case(request: AssistRequest, session: Session = Depends(get_session)):
     """
-    Анализирует материалы дела, сохраняет вопрос юриста и возвращает ответ.
+    Анализирует материалы дела, сохраняет вопрос юриста и возвращает ответ стримом (SSE).
     """
     logger.info(f"Analyze request for case_id={request.case_id}")
-    try:
-        # 1. Сохраняем вопрос юриста в локальную БД ассистента
-        user_msg = Message(case_id=request.case_id, sender_role="lawyer", content=request.query, source="frontend")
-        session.add(user_msg)
-        session.commit()
+    # 1. Сохраняем вопрос юриста в локальную БД ассистента
+    user_msg = Message(case_id=request.case_id, sender_role="lawyer", content=request.query, source="frontend")
+    session.add(user_msg)
+    session.commit()
 
-        # 2. Получаем историю предыдущих диалогов Юрист-Ассистент из локальной БД
-        lawyer_ai_messages = session.exec(
-            select(Message).where(Message.case_id == request.case_id)
-        ).all()
-        
-        # Формируем полный контекст для LLM
-        lawyer_history_str = "\n".join([f"{m.sender_role}: {m.content}" for m in lawyer_ai_messages[:-1]])
-        
-        full_context_history = f"--- КЛИЕНТ-ИНТЕРВЬЮ ---\n{request.history}\n\n--- ДИАЛОГ С ЮРИСТОМ ---\n{lawyer_history_str}"
+    # 2. Получаем историю предыдущих диалогов Юрист-Ассистент из локальной БД
+    lawyer_ai_messages = session.exec(
+        select(Message).where(Message.case_id == request.case_id)
+    ).all()
+    
+    # Формируем полный контекст для LLM
+    lawyer_history_str = "\n".join([f"{m.sender_role}: {m.content}" for m in lawyer_ai_messages[:-1]])
+    
+    full_context_history = f"--- КЛИЕНТ-ИНТЕРВЬЮ ---\n{request.history}\n\n--- ДИАЛОГ С ЮРИСТОМ ---\n{lawyer_history_str}"
 
-        search_results = ""
-        if request.search_web:
-            logger.info(f"Web search enabled for case_id={request.case_id}")
+    search_results = ""
+    if request.search_web:
+        logger.info(f"Web search enabled for case_id={request.case_id}")
+        try:
+            search = TavilySearchResults(max_results=5)
+            raw_results = search.invoke(request.query)
+            search_results = "\n\n".join(
+                [f"**{r.get('title','')}**\n{r.get('content','')}\n[{r.get('url','')}]" for r in raw_results]
+            )
+            logger.info(f"Web search completed for case_id={request.case_id}, results={len(raw_results)}")
+        except Exception as e:
+            logger.warning(f"Web search failed for case_id={request.case_id}: {e}")
+            search_results = ""
+
+    search_results_section = ""
+    if search_results:
+        search_results_section = f"РЕЗУЛЬТАТЫ ПОИСКА В ИНТЕРНЕТЕ:\n{search_results}"
+
+    logger.info(f"Streaming LLM response for case_id={request.case_id}")
+    llm = get_llm()
+    prompt = ChatPromptTemplate.from_template(ASSISTANT_PROMPT)
+    chain = prompt | llm
+
+    async def generate():
+        full_response = ""
+        chunk_index = 0
+        try:
+            async for chunk in chain.astream({
+                "case_file": request.case_file or "Не указано.",
+                "history": full_context_history,
+                "query": request.query,
+                "search_results_section": search_results_section
+            }):
+                if chunk.content:
+                    full_response += chunk.content
+                    chunk_index += 1
+                    if chunk_index % 5 == 0:
+                        logger.info(f"Stream chunk #{chunk_index} for case_id={request.case_id} (+{len(chunk.content)} chars, total {len(full_response)})")
+                    yield f"data: {json.dumps({'token': chunk.content})}\n\n"
+        except Exception as e:
+            logger.error(f"Streaming failed for case_id={request.case_id} at chunk #{chunk_index}: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            logger.info(f"Stream finished for case_id={request.case_id}: {chunk_index} chunks, {len(full_response)} chars total")
+            # 3. Сохраняем ответ ассистента после завершения стрима
             try:
-                search = TavilySearchResults(max_results=5)
-                raw_results = search.invoke(request.query)
-                search_results = "\n\n".join(
-                    [f"**{r.get('title','')}**\n{r.get('content','')}\n[{r.get('url','')}]" for r in raw_results]
-                )
-                logger.info(f"Web search completed for case_id={request.case_id}, results={len(raw_results)}")
+                with Session(engine) as save_session:
+                    ai_msg = Message(case_id=request.case_id, sender_role="ai_case", content=full_response, source="frontend")
+                    save_session.add(ai_msg)
+                    save_session.commit()
+                logger.info(f"AI message saved for case_id={request.case_id}")
             except Exception as e:
-                logger.warning(f"Web search failed for case_id={request.case_id}: {e}")
-                search_results = ""
+                logger.error(f"Failed to save AI message for case_id={request.case_id}: {e}")
+            yield f"data: {json.dumps({'done': True})}\n\n"
 
-        search_results_section = ""
-        if search_results:
-            search_results_section = f"РЕЗУЛЬТАТЫ ПОИСКА В ИНТЕРНЕТЕ:\n{search_results}"
-
-        logger.info(f"Invoking LLM for case_id={request.case_id}")
-        llm = get_llm()
-        prompt = ChatPromptTemplate.from_template(ASSISTANT_PROMPT)
-        chain = prompt | llm
-        
-        response = chain.invoke({
-            "case_file": request.case_file or "Не указано.",
-            "history": full_context_history,
-            "query": request.query,
-            "search_results_section": search_results_section
-        })
-        
-        # 3. Сохраняем ответ ассистента
-        ai_msg = Message(case_id=request.case_id, sender_role="ai_case", content=response.content, source="frontend")
-        session.add(ai_msg)
-        session.commit()
-        
-        logger.info(f"LLM analysis completed for case_id={request.case_id}")
-        return {"response": response.content}
-    except Exception as e:
-        logger.error(f"Error during analysis for case_id={request.case_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.get("/messages/{case_id}")
 async def get_messages(case_id: str, session: Session = Depends(get_session)):
