@@ -477,6 +477,7 @@ async def delete_case(case_id: str, lawyer_id: int = Depends(get_current_lawyer)
         "type": "CASE_DELETED",
         "case_id": case_id,
     })
+    await manager.close_case_connections(case_id)
     return {"case_id": case_id, "deleted": True}
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ export function useCaseChat(caseId: string) {
   const [isThinking, setIsThinking] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [caseDeleted, setCaseDeleted] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const streamBufRef = useRef<string>('');
 
@@ -30,6 +31,7 @@ export function useCaseChat(caseId: string) {
     socket.onopen = () => {
       setIsConnected(true);
       setError(null);
+      setCaseDeleted(false);
       console.log(`Connected to Case ${caseId} WebSocket`);
     };
 
@@ -58,16 +60,22 @@ export function useCaseChat(caseId: string) {
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       setIsConnected(false);
       setIsThinking(false);
       streamBufRef.current = '';
       setStreamingContent('');
-      setError('Connection lost');
-      console.log(`Disconnected from Case ${caseId} WebSocket`);
+      if (event.code === 4004) {
+        setCaseDeleted(true);
+        setError('Дело удалено');
+      } else {
+        setError('Connection lost');
+      }
+      console.log(`Disconnected from Case ${caseId} WebSocket, code=${event.code}`);
     };
 
     return () => {
+      setCaseDeleted(false);
       socket.close();
     };
   }, [caseId, token]);
@@ -82,5 +90,5 @@ export function useCaseChat(caseId: string) {
 
   const clearError = useCallback(() => setError(null), []);
 
-  return { messages, setMessages, isConnected, isThinking, streamingContent, error, sendMessage, clearError };
+  return { messages, setMessages, isConnected, isThinking, streamingContent, error, caseDeleted, sendMessage, clearError };
 }

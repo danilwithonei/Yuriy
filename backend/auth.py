@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlmodel import Session, select
@@ -10,7 +10,6 @@ import re
 from database import engine
 from models import Lawyer
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
 SECRET_KEY = os.getenv("JWT_SECRET", "dev-secret-change-in-production")
@@ -20,10 +19,10 @@ EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 def create_token(lawyer_id: int) -> str:
     expire = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=EXPIRE_MINUTES)

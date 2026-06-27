@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, use, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import api, { API_URL } from '@/lib/api';
 import { Send, User, Bot, History, FileText, MessageSquare, Info, ChevronRight, UserCircle, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -64,7 +65,8 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
   const [intakeError, setIntakeError] = useState<string | null>(null);
   const [streamingIntakeContent, setStreamingIntakeContent] = useState('');
   const [forbidden, setForbidden] = useState(false);
-  const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected, isThinking, streamingContent, error, clearError } = useCaseChat(caseId);
+  const { messages: chatMessages, setMessages: setChatMessages, sendMessage, isConnected, isThinking, streamingContent, error, caseDeleted, clearError } = useCaseChat(caseId);
+  const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const storeCase = useCaseStore((state) => state.cases.find(c => c.id === caseId));
@@ -190,6 +192,21 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
       setIntakeError(e?.response?.data?.detail || 'Ошибка подтверждения');
     }
   };
+
+  if (caseDeleted) return (
+    <div className="flex items-center justify-center h-full">
+      <div className="text-center space-y-4">
+        <div className="text-4xl font-bold text-gray-300">404</div>
+        <p className="text-sm text-gray-500">Дело удалено</p>
+        <button
+          onClick={() => router.push('/')}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl bg-black dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity"
+        >
+          Вернуться к списку
+        </button>
+      </div>
+    </div>
+  );
 
   if (forbidden) return (
     <div className="flex items-center justify-center h-full">

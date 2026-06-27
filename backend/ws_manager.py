@@ -40,6 +40,16 @@ class ConnectionManager:
             if not self.case_connections[case_id]:
                 del self.case_connections[case_id]
 
+    async def close_case_connections(self, case_id: str, code: int = 4004):
+        """Закрыть все WebSocket соединения для конкретного дела (удаление)."""
+        if case_id in self.case_connections:
+            for ws in self.case_connections.pop(case_id, []):
+                try:
+                    await ws.close(code=code)
+                except Exception:
+                    pass
+            logger.info(f"Closed all WS connections for deleted case_id={case_id}")
+
     async def send_case_message(self, case_id: str, message: dict):
         """Отправка сообщения всем участникам чата конкретного дела"""
         if case_id in self.case_connections:

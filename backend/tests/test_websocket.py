@@ -1,6 +1,7 @@
 import pytest
 import respx
 from httpx import Response
+from starlette.websockets import WebSocketDisconnect
 from fastapi.testclient import TestClient
 from main import app
 
@@ -79,3 +80,32 @@ def test_websocket_invalid_json(client, auth_headers, respx_mock):
         resp = websocket.receive_json()
         assert "error" in resp
         assert resp["error"] == "Invalid JSON format"
+
+@respx.mock
+def test_ws_closed_on_case_delete(client, auth_headers, respx_mock):
+    CASE_ID = "dddddddd-dddd-4ddd-dddd-dddddddddddd"
+    token = auth_headers["Authorization"].split(" ")[1]
+    respx_mock.get(f"{INTAKE_URL}/case/{CASE_ID}").mock(return_value=Response(200, json={
+        "case": {"id": CASE_ID, "client_id": 1, "lawyer_id": 1, "case_type": "direct", "title": None, "summary": None},
+        "messages": []
+    }))
+    respx_mock.delete(f"{INTAKE_URL}/case/{CASE_ID}").mock(return_value=Response(200, json={"case_id": CASE_ID, "deleted": True}))
+    respx_mock.delete(f"{LAWYER_URL}/case/{CASE_ID}").mock(return_value=Response(200, json={"case_id": CASE_ID, "deleted": True}))
+
+    with client.websocket_connect(f"/ws/cases/{CASE_ID}/chat?token={token}") as ws:
+        resp = client.delete(f"/cases/{CASE_ID}", headers=auth_headers)
+        assert resp.status_code == 200
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+        assert exc.value.code == 4004
+
+@respx.mock
+def test_ws_deleted_case_reconnect_closed(client, auth_headers, respx_mock):
+    CASE_ID = "eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee"
+    token = auth_headers["Authorization"].split(" ")[1]
+    respx_mock.get(f"{INTAKE_URL}/case/{CASE_ID}").mock(return_value=Response(404))
+
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(f"/ws/cases/{CASE_ID}/chat?token={token}"):
+            pass
+    assert exc.value.code == 4004
