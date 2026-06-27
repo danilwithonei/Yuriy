@@ -1,9 +1,10 @@
+from contextlib import asynccontextmanager
 import json
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlmodel import Session, select, text
-from datetime import datetime
+from sqlmodel import Session, select
+from datetime import datetime, timezone
 from core.llm import get_llm
 from core.logger import logger
 from langchain_core.prompts import ChatPromptTemplate
@@ -13,34 +14,22 @@ except ImportError:
     from langchain_community.tools.tavily_search import TavilySearchResults
 from prompts import ASSISTANT_PROMPT
 from models import Message, Case
-from database import create_db_and_tables, get_session, engine
+from database import create_db_and_tables, get_session, engine, DATABASE_URL
 import os
 import uvicorn
+from yuriy_shared import run_migrations
 
-app = FastAPI(title="Yuriy Lawyer Assistant Service")
 
-def _migrate_schema():
-    """Добавляет новые колонки в существующие таблицы (SQLite)."""
-    with Session(engine) as session:
-        for stmt in [
-            'ALTER TABLE "case" ADD COLUMN lawyer_id INTEGER',
-            'ALTER TABLE "case" ADD COLUMN pinned BOOLEAN DEFAULT 0',
-            'ALTER TABLE "case" ADD COLUMN deleted_at TIMESTAMP',
-        ]:
-            try:
-                session.exec(text(stmt))
-                session.commit()
-                logger.info(f"Migration: {stmt}")
-            except Exception as e:
-                session.rollback()
-                logger.warning(f"Migration skipped (already exists?): {e}")
-
-@app.on_event("startup")
-def on_startup():
+@asynccontextmanager
+async def lifespan(app):
     logger.info("Starting Lawyer Assistant Service")
     os.makedirs("./db", exist_ok=True)
     create_db_and_tables()
-    _migrate_schema()
+    run_migrations(DATABASE_URL)
+    yield
+
+
+app = FastAPI(title="Yuriy Lawyer Assistant Service", lifespan=lifespan)
 
 class AssistRequest(BaseModel):
     case_id: str
@@ -159,7 +148,7 @@ async def delete_case(case_id: str, session: Session = Depends(get_session)):
     case = session.get(Case, case_id)
     if not case or case.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Case not found")
-    case.deleted_at = datetime.utcnow()
+    case.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
     session.add(case)
     session.commit()
     return {"case_id": case_id, "deleted": True}

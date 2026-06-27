@@ -1,9 +1,10 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlmodel import Session, select, text
+from sqlmodel import Session, select
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import json
 import httpx
@@ -11,51 +12,22 @@ import uvicorn
 
 # Импорты из локальных модулей сервиса
 from models import User, Case, Message
-from database import engine, create_db_and_tables, get_session
+from database import engine, create_db_and_tables, get_session, DATABASE_URL
 from core.agent import AgentService
 from core.logger import logger
+from yuriy_shared import run_migrations
 
-app = FastAPI(title="Yuriy Agent Service")
 
-def _migrate_schema():
-    """Добавляет новые колонки в существующие таблицы (SQLite)."""
-    with Session(engine) as session:
-        for stmt in [
-            'ALTER TABLE "case" ADD COLUMN pinned BOOLEAN DEFAULT 0',
-            'ALTER TABLE "case" ADD COLUMN deleted_at TIMESTAMP',
-        ]:
-            try:
-                session.exec(text(stmt))
-                session.commit()
-                logger.info(f"Migration: {stmt}")
-            except Exception as e:
-                session.rollback()
-                logger.warning(f"Migration skipped (already exists?): {e}")
-
-@app.on_event("startup")
-def on_startup():
+@asynccontextmanager
+async def lifespan(app):
     logger.info("Starting Intake Agent Service")
     os.makedirs("./db", exist_ok=True)
     create_db_and_tables()
-    _migrate_schema()
-    _seed_default_lawyer()
+    run_migrations(DATABASE_URL)
+    yield
 
-def _seed_default_lawyer():
-    with Session(engine) as session:
-        existing = session.exec(
-            select(User).where(User.external_id == "lawyer_default", User.source == "frontend")
-        ).first()
-        if existing:
-            return
-        user = User(
-            external_id="lawyer_default",
-            source="frontend",
-            username="lawyer_default",
-            role="lawyer"
-        )
-        session.add(user)
-        session.commit()
-        logger.info("Seeded default lawyer user")
+
+app = FastAPI(title="Yuriy Agent Service", lifespan=lifespan)
 
 async def _notify_gateway(case_id: str, status: str, title: str | None = None, summary: str | None = None):
     gateway_url = os.getenv("GATEWAY_URL", "http://backend:8000")
@@ -293,7 +265,7 @@ async def delete_case(case_id: str, session: Session = Depends(get_session)):
     case = session.get(Case, case_id)
     if not case or case.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Case not found")
-    case.deleted_at = datetime.utcnow()
+    case.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
     session.add(case)
     session.commit()
     return {"case_id": case_id, "deleted": True}

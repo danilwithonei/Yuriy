@@ -33,3 +33,6 @@ backend/*.sqlite3
 # OS files
 .DS_Store
 Thumbs.db
+
+# Egg info
+yuriy_shared.egg-info/

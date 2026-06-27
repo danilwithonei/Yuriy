@@ -205,3 +205,141 @@ COMPOSE_PROFILES=testing docker compose run --rm backend-tester pytest --cov=. -
 # Мутационное тестирование
 COMPOSE_PROFILES=testing docker compose run --rm backend-tester mutmut run
 ```
+
+---
+
+## Миграции БД (Alembic)
+
+Alembic живёт в `packages/shared/`. Миграции запускаются **при старте сервиса** (intake-service, lawyer-service) через `run_migrations()`. Backend НЕ запускает миграции — там `create_db_and_tables()`.
+
+### Структура
+
+```
+packages/shared/
+  alembic.ini                              # script_location = yuriy_shared:alembic
+  yuriy_shared/
+    migration.py                           # run_migrations() — точка входа
+    alembic/
+      env.py                               # импортирует все модели SQLModel
+      script.py.mako                       # шаблон новой миграции
+      versions/
+        0001_initial.py
+        0002_add_case_type_title_summary.py
+```
+
+### Полный воркфлоу создания миграции
+
+Выполни шаги **строго по порядку**:
+
+**Шаг 1. Убедись, что shared-пакет установлен**
+```bash
+# С хоста (не Docker):
+pip install -e packages/shared
+# или (если venv активна):
+pip install -e /app/packages/shared
+```
+Если `yuriy_shared` не установлен, `alembic` не найдёт `script_location`.
+
+**Шаг 2. Проверь `env.py`**
+
+Прочитай `packages/shared/yuriy_shared/alembic/env.py`.
+**Если миграция затрагивает новую модель — добавь её импорт в `env.py`.**
+
+Сейчас там импортированы:
+```python
+import yuriy_shared.models.lawyer
+import yuriy_shared.models.user
+import yuriy_shared.models.case
+import yuriy_shared.models.message
+```
+
+Если добавил новую модель `yuriy_shared/models/foo.py` — добавь:
+```python
+import yuriy_shared.models.foo  # noqa: E402, F401
+```
+Без этого импорта `SQLModel.metadata` не увидит модель, и `--autogenerate` ничего не сгенерирует.
+
+**Шаг 3. Сгенерируй миграцию**
+```bash
+cd packages/shared
+alembic -c alembic.ini revision --autogenerate -m "add_field_x_to_table_y"
+```
+Эта команда:
+- Сравнит `SQLModel.metadata` (из импортированных моделей) с текущей БД
+- Создаст файл в `versions/` с автоматическими `upgrade()` и `downgrade()`
+
+**Шаг 4. Проверь сгенерированный файл**
+
+Прочитай созданный файл в `packages/shared/yuriy_shared/alembic/versions/`.
+Проверь:
+- `upgrade()` — правильные ли операции? Не удаляет ли лишнего?
+- `downgrade()` — корректно ли откатывает?
+- `down_revision` — правильный ли ID предыдущей миграции?
+- Для ALTER TABLE (добавление/удаление колонок) — обёрнуто ли в `with op.batch_alter_table()`?
+- Для SQLite `CREATE TABLE`/`DROP TABLE` — `batch_alter_table` **не нужен**, только для ALTER
+
+**Шаг 5. Если autogenerate не угадал — исправь вручную**
+
+Autogenerate может ошибиться. Типичные правки:
+- Заменить `op.alter_column()` на `with op.batch_alter_table()`
+- Добавить проверку `inspect()` для idempotency (см. 0002 как пример)
+- Убрать лишние изменения (например, `sa.DateTime()` → `sa.DateTime(timezone=True)`)
+
+**Шаг 6. Протестируй**
+```bash
+docker compose --profile testing run --rm backend-tester
+```
+
+Если тесты падают — исправь миграцию и повтори шаг 4-6.
+
+### Правила
+
+1. **Idempotency** — проверять существование колонок через `inspect()` (как в 0002). Миграция должна безопасно применяться повторно.
+2. **SQLite-safe** — всегда `with op.batch_alter_table()` для ALTER TABLE. Без этого SQLite упадёт с ошибкой.
+3. **Downgrade** — обязателен, тоже idempotent. Должен откатывать только то, что создал upgrade.
+4. **Revises** — цепочка: `0001` → `0002` → `0003` → ... Каждая новая миграция ссылается на предыдущую.
+5. **Не менять существующие миграции** — только новая revision. Если что-то не так в старой миграции — создай новую, которая это фиксит.
+6. **Тестировать** — всегда запускать `docker compose --profile testing run --rm backend-tester` после создания миграции.
+
+### Как применяются
+
+`run_migrations(database_url)` в `migration.py`:
+
+```python
+# Логика:
+# - есть alembic_version → upgrade head
+# - есть таблицы без alembic_version → stamp head (легаси)
+# - нет таблиц → upgrade head
+```
+
+Порядок в сервисах:
+```python
+create_db_and_tables()    # SQLModel metadata.create_all
+run_migrations(DATABASE_URL)  # Alembic upgrade head
+```
+
+Такой порядок безопасен: `create_all` идемпотентен, `upgrade` применяет только новые миграции.
+
+### Ручное управление (из Docker)
+
+```bash
+# Откатить последнюю
+docker compose exec intake-agent alembic -c /app/packages/shared/alembic.ini downgrade -1
+
+# Текущая версия
+docker compose exec intake-agent alembic -c /app/packages/shared/alembic.ini current
+
+# История
+docker compose exec intake-agent alembic -c /app/packages/shared/alembic.ini history
+```
+
+**Важно:** `script_location = yuriy_shared:alembic` — package-relative, работает только при `pip install -e /app/packages/shared`. В Docker так и есть — `COPY packages/shared /app/packages/shared && pip install -e /app/packages/shared`.
+
+### Чего нельзя
+
+- **Не редактировать существующие миграции** — создавай новую
+- **Не использовать `ALTER TABLE` без `batch_alter_table`** — упадёт на SQLite
+- **Не забывать downgrade** — без него не откатить
+- **Не удалять импорты из `env.py`** — без них autogenerate не увидит модели
+- **Не менять `alembic_version` руками** — сломаешь цепочку revises
+- **Не пропускать шаг 4** (проверку сгенерированного файла) — autogenerate часто ошибается

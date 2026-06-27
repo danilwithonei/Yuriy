@@ -1,5 +1,10 @@
 import os
+import warnings
+
 os.environ["TESTING"] = "1"
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="passlib")
+warnings.filterwarnings("ignore", message="Couldn't parse", category=UserWarning, module="coverage")
 
 import pytest
 from fastapi.testclient import TestClient

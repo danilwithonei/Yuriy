@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +11,7 @@ import os
 import uvicorn
 import httpx
 
+from yuriy_shared.sse import parse_sse_line
 from database import engine, create_db_and_tables
 from models import Lawyer
 from schemas import RegisterRequest, LoginRequest, AuthResponse, LawyerOut
@@ -18,7 +20,14 @@ from auth import (
     validate_email, get_lawyer_by_email, get_current_lawyer, get_lawyer_or_none
 )
 
-app = FastAPI(title="Yuriy Lawyer Dashboard Gateway")
+
+@asynccontextmanager
+async def lifespan(app):
+    create_db_and_tables()
+    yield
+
+
+app = FastAPI(title="Yuriy Lawyer Dashboard Gateway", lifespan=lifespan)
 
 # Настройка CORS
 app.add_middleware(
@@ -40,10 +49,6 @@ class CaseUpdatedRequest(BaseModel):
 
 class CreateCaseRequest(BaseModel):
     type: str = "direct"
-
-@app.on_event("startup")
-def on_startup():
-    create_db_and_tables()
 
 @app.get("/")
 def read_root():
@@ -234,35 +239,29 @@ async def websocket_case_chat(websocket: WebSocket, case_id: str):
                             full_content = ""
                             sse_count = 0
                             async for line in assist_res.aiter_lines():
-                                if line.startswith("data: "):
-                                    payload = line[6:]
-                                    if not payload.strip():
-                                        continue
-                                    try:
-                                        data = json.loads(payload)
-                                    except json.JSONDecodeError:
-                                        logger.warning(f"SSE parse error for case_id={case_id}: {line[:100]}")
-                                        continue
-                                    if "token" in data:
-                                        full_content += data["token"]
-                                        sse_count += 1
-                                        if sse_count % 5 == 0:
-                                            logger.info(f"SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_content)})")
-                                        await manager.send_case_message(case_id, {
-                                            "type": "AI_TOKEN",
-                                            "token": data["token"]
-                                        })
-                                    elif "error" in data:
-                                        logger.error(f"SSE error for case_id={case_id}: {data['error']}")
-                                        await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": data["error"]})
-                                        break
-                                    elif data.get("done"):
-                                        logger.info(f"SSE done for case_id={case_id}: {sse_count} events, {len(full_content)} chars")
-                                        await manager.send_case_message(case_id, {
-                                            "type": "AI_RESPONSE",
-                                            "content": full_content,
-                                            "sender": "ai_case"
-                                        })
+                                data = parse_sse_line(line)
+                                if data is None:
+                                    continue
+                                if "token" in data:
+                                    full_content += data["token"]
+                                    sse_count += 1
+                                    if sse_count % 5 == 0:
+                                        logger.info(f"SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_content)})")
+                                    await manager.send_case_message(case_id, {
+                                        "type": "AI_TOKEN",
+                                        "token": data["token"]
+                                    })
+                                elif "error" in data:
+                                    logger.error(f"SSE error for case_id={case_id}: {data['error']}")
+                                    await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": data["error"]})
+                                    break
+                                elif data.get("done"):
+                                    logger.info(f"SSE done for case_id={case_id}: {sse_count} events, {len(full_content)} chars")
+                                    await manager.send_case_message(case_id, {
+                                        "type": "AI_RESPONSE",
+                                        "content": full_content,
+                                        "sender": "ai_case"
+                                    })
                     except Exception as e:
                         logger.error(f"Failed to reach Lawyer Assistant Service: {e}")
                         await manager.send_case_message(case_id, {"type": "AI_ERROR", "error": "Lawyer Assistant Service unavailable"})
@@ -326,26 +325,20 @@ async def assist_case(case_id: str, request: AssistRequest, lawyer_id: int = Dep
                 full_content = ""
                 sse_count = 0
                 async for line in assist_res.aiter_lines():
-                    if line.startswith("data: "):
-                        payload = line[6:]
-                        if not payload.strip():
-                            continue
-                        try:
-                            data = json.loads(payload)
-                        except json.JSONDecodeError:
-                            logger.warning(f"REST SSE parse error for case_id={case_id}: {line[:100]}")
-                            continue
-                        if "token" in data:
-                            full_content += data["token"]
-                            sse_count += 1
-                            if sse_count % 5 == 0:
-                                logger.info(f"REST SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_content)})")
-                        elif "error" in data:
-                            logger.error(f"REST SSE error for case_id={case_id}: {data['error']}")
-                            raise HTTPException(status_code=502, detail=data["error"])
-                        elif data.get("done"):
-                            logger.info(f"REST SSE done for case_id={case_id}: {sse_count} events, {len(full_content)} chars")
-                            break
+                    data = parse_sse_line(line)
+                    if data is None:
+                        continue
+                    if "token" in data:
+                        full_content += data["token"]
+                        sse_count += 1
+                        if sse_count % 5 == 0:
+                            logger.info(f"REST SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_content)})")
+                    elif "error" in data:
+                        logger.error(f"REST SSE error for case_id={case_id}: {data['error']}")
+                        raise HTTPException(status_code=502, detail=data["error"])
+                    elif data.get("done"):
+                        logger.info(f"REST SSE done for case_id={case_id}: {sse_count} events, {len(full_content)} chars")
+                        break
                 return {"response": full_content}
         except httpx.RequestError:
             raise HTTPException(status_code=502, detail="Lawyer Assistant Service unavailable")
@@ -392,29 +385,23 @@ async def intake_chat(case_id: str, request: AssistRequest, lawyer_id: int = Dep
                 sse_count = 0
 
                 async for line in res.aiter_lines():
-                    if line.startswith("data: "):
-                        payload = line[6:]
-                        if not payload.strip():
-                            continue
-                        try:
-                            data = json.loads(payload)
-                        except json.JSONDecodeError:
-                            logger.warning(f"Intake SSE parse error for case_id={case_id}: {line[:100]}")
-                            continue
-                        if "token" in data:
-                            full_response += data["token"]
-                            sse_count += 1
-                            if sse_count % 5 == 0:
-                                logger.info(f"Intake SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_response)})")
-                            yield f"data: {json.dumps(data)}\n\n"
-                        elif "error" in data:
-                            logger.error(f"Intake SSE error for case_id={case_id}: {data['error']}")
-                            yield f"data: {json.dumps(data)}\n\n"
-                            return
-                        elif data.get("done"):
-                            logger.info(f"Intake SSE done for case_id={case_id}: {sse_count} events, {len(full_response)} chars")
-                            yield f"data: {json.dumps(data)}\n\n"
-                            return
+                    data = parse_sse_line(line)
+                    if data is None:
+                        continue
+                    if "token" in data:
+                        full_response += data["token"]
+                        sse_count += 1
+                        if sse_count % 5 == 0:
+                            logger.info(f"Intake SSE token #{sse_count} for case_id={case_id} (+{len(data['token'])} chars, total {len(full_response)})")
+                        yield f"data: {json.dumps(data)}\n\n"
+                    elif "error" in data:
+                        logger.error(f"Intake SSE error for case_id={case_id}: {data['error']}")
+                        yield f"data: {json.dumps(data)}\n\n"
+                        return
+                    elif data.get("done"):
+                        logger.info(f"Intake SSE done for case_id={case_id}: {sse_count} events, {len(full_response)} chars")
+                        yield f"data: {json.dumps(data)}\n\n"
+                        return
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

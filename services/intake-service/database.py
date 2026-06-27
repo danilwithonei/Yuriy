@@ -1,17 +1,14 @@
 import os
-from sqlmodel import create_engine, SQLModel, Session
-from dotenv import load_dotenv
+from sqlmodel import Session
+from yuriy_shared.database import create_engine as _make_engine, create_db_and_tables as _create_tables
 
-load_dotenv()
-
-# Настройка базы данных агента
 DATABASE_URL = os.getenv("AGENT_DATABASE_URL", "sqlite:///./db/agent_database.db")
-SQL_ECHO = os.getenv("SQL_ECHO", "false").lower() == "true"
+engine = _make_engine(DATABASE_URL)
 
-engine = create_engine(DATABASE_URL, echo=SQL_ECHO)
 
 def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
+    _create_tables(engine)
+
 
 def get_session():
     with Session(engine) as session:

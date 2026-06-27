@@ -1,6 +1,6 @@
 import pytest
 from httpx import Response, ConnectTimeout
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import jwt
 import os
 
@@ -9,7 +9,7 @@ from auth import SECRET_KEY, ALGORITHM
 AUTH_URL = ""
 
 def _expired_token():
-    payload = {"sub": "999999", "exp": datetime.utcnow() - timedelta(hours=1)}
+    payload = {"sub": "999999", "exp": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 def _garbage_token():
@@ -90,7 +90,7 @@ class TestLogin:
         assert "invalid" in resp.json()["detail"].lower()
 
     def test_login_broken_json(self, client):
-        resp = client.post("/auth/login", data="not json", headers={"Content-Type": "application/json"})
+        resp = client.post("/auth/login", content="not json", headers={"Content-Type": "application/json"})
         assert resp.status_code in (400, 422)
 
 class TestMe:

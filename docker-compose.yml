@@ -1,56 +1,73 @@
 services:
   intake-agent:
-    build: ./services/intake-service
+    build:
+      context: .
+      dockerfile: services/intake-service/Dockerfile
     ports:
       - "8001:8001"
     env_file:
       - ./backend/.env
     volumes:
       - ./services/intake-service:/app
+      - ./packages:/app/packages
     command: uvicorn main:app --host 0.0.0.0 --port 8001
     restart: always
 
   lawyer-service:
-    build: ./services/lawyer-service
+    build:
+      context: .
+      dockerfile: services/lawyer-service/Dockerfile
     ports:
       - "8002:8002"
     env_file:
       - ./backend/.env
     volumes:
       - ./services/lawyer-service:/app
+      - ./packages:/app/packages
     command: uvicorn main:app --host 0.0.0.0 --port 8002
     restart: always
 
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     env_file:
       - ./backend/.env
     volumes:
       - ./backend:/app
+      - ./packages:/app/packages
     restart: always
 
-  # telegram_bot:
-  #   build: ./services/bot-service
-  #   env_file:
-  #     - ./backend/.env
-  #   environment:
-  #     - API_URL=http://intake-agent:8001
-  #   volumes:
-  #     - ./services/bot-service:/app
-  #   depends_on:
-  #     - intake-agent
-  #   restart: no
+  telegram_bot:
+    build:
+      context: .
+      dockerfile: services/bot-service/Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      - API_URL=http://intake-agent:8001
+    volumes:
+      - ./services/bot-service:/app
+      - ./packages:/app/packages
+    depends_on:
+      - intake-agent
+    profiles:
+      - deprecated
+    restart: no
 
   max-bot:
-    build: ./services/max-bot-service
+    build:
+      context: .
+      dockerfile: services/max-bot-service/Dockerfile
     env_file:
       - ./backend/.env
     environment:
       - API_URL=http://intake-agent:8001
     volumes:
       - ./services/max-bot-service:/app
+      - ./packages:/app/packages
     depends_on:
       - intake-agent
     restart: always
@@ -69,11 +86,12 @@ services:
 
   backend-tester:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.test
+      context: .
+      dockerfile: backend/Dockerfile.test
     env_file:
       - ./backend/.env
     volumes:
       - ./backend:/app
+      - ./packages:/app/packages
     profiles:
       - testing

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yuriy-shared"
+version = "0.1.0"
+description = "Shared models, utilities, and database for Yuriy microservices"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlmodel>=0.0.38",
+    "langchain-openai>=0.3.0,<1.0",
+    "langchain-core>=0.3.29",
+    "httpx>=0.28.0",
+    "python-dotenv>=1.0.0",
+    "alembic>=1.15.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["yuriy_shared*"]

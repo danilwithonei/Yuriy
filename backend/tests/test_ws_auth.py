@@ -21,10 +21,10 @@ class TestWebSocketAuth:
         assert exc.value.code == 4001
 
     def test_ws_expired_token(self, client):
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         from jose import jwt
         from auth import SECRET_KEY, ALGORITHM
-        payload = {"sub": "1", "exp": datetime.utcnow() - timedelta(hours=1)}
+        payload = {"sub": "1", "exp": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)}
         token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
         with pytest.raises(WebSocketDisconnect) as exc:
             with client.websocket_connect(f"/ws/cases/{CASE_UUID}/chat?token={token}"):
