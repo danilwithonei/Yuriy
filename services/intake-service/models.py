@@ -20,6 +20,8 @@ class Case(SQLModel, table=True):
     case_file: Optional[str] = None  # Markdown report
     title: Optional[str] = None  # Название дела (генер. LLM)
     summary: Optional[str] = None  # Краткое описание дела
+    pinned: bool = Field(default=False)
+    deleted_at: Optional[datetime] = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class Message(SQLModel, table=True):

@@ -6,7 +6,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { WS_BASE_URL } from '@/lib/api';
 
 export function WebSocketProvider({ children }: { children: React.ReactNode }) {
-  const { addCase, updateCaseStatus, updateCaseMeta } = useCaseStore();
+  const { addCase, updateCaseStatus, updateCaseMeta, removeCase, setCasePinned } = useCaseStore();
   const token = useAuthStore((s) => s.token);
 
   useEffect(() => {
@@ -35,6 +35,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
           if (Object.keys(meta).length > 0) {
             updateCaseMeta(data.case_id, meta);
           }
+        } else if (data.type === 'CASE_DELETED') {
+          removeCase(data.case_id);
+        } else if (data.type === 'CASE_PINNED') {
+          setCasePinned(data.case_id, data.pinned);
         }
       };
 
@@ -54,7 +58,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       if (socket) socket.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, [token, addCase, updateCaseStatus, updateCaseMeta]);
+  }, [token, addCase, updateCaseStatus, updateCaseMeta, removeCase, setCasePinned]);
 
   return <>{children}</>;
 }

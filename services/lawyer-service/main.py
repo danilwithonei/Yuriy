@@ -2,7 +2,8 @@ import json
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlmodel import Session, select
+from sqlmodel import Session, select, text
+from datetime import datetime
 from core.llm import get_llm
 from core.logger import logger
 from langchain_core.prompts import ChatPromptTemplate
@@ -18,11 +19,28 @@ import uvicorn
 
 app = FastAPI(title="Yuriy Lawyer Assistant Service")
 
+def _migrate_schema():
+    """Добавляет новые колонки в существующие таблицы (SQLite)."""
+    with Session(engine) as session:
+        for stmt in [
+            'ALTER TABLE "case" ADD COLUMN lawyer_id INTEGER',
+            'ALTER TABLE "case" ADD COLUMN pinned BOOLEAN DEFAULT 0',
+            'ALTER TABLE "case" ADD COLUMN deleted_at TIMESTAMP',
+        ]:
+            try:
+                session.exec(text(stmt))
+                session.commit()
+                logger.info(f"Migration: {stmt}")
+            except Exception as e:
+                session.rollback()
+                logger.warning(f"Migration skipped (already exists?): {e}")
+
 @app.on_event("startup")
 def on_startup():
     logger.info("Starting Lawyer Assistant Service")
     os.makedirs("./db", exist_ok=True)
     create_db_and_tables()
+    _migrate_schema()
 
 class AssistRequest(BaseModel):
     case_id: str
@@ -120,6 +138,31 @@ async def get_messages(case_id: str, session: Session = Depends(get_session)):
     logger.info(f"Fetching lawyer messages for case_id={case_id}")
     messages = session.exec(select(Message).where(Message.case_id == case_id)).all()
     return messages
+
+class PatchCasePinRequest(BaseModel):
+    pinned: bool
+
+@app.patch("/case/{case_id}/pin")
+async def patch_case_pin(case_id: str, request: PatchCasePinRequest, session: Session = Depends(get_session)):
+    logger.info(f"Lawyer Service: pin case id={case_id}, pinned={request.pinned}")
+    case = session.get(Case, case_id)
+    if not case or case.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    case.pinned = request.pinned
+    session.add(case)
+    session.commit()
+    return {"case_id": case_id, "pinned": case.pinned}
+
+@app.delete("/case/{case_id}")
+async def delete_case(case_id: str, session: Session = Depends(get_session)):
+    logger.info(f"Lawyer Service: soft delete case id={case_id}")
+    case = session.get(Case, case_id)
+    if not case or case.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    case.deleted_at = datetime.utcnow()
+    session.add(case)
+    session.commit()
+    return {"case_id": case_id, "deleted": True}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8002)

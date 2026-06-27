@@ -436,5 +436,61 @@ async def intake_confirm(case_id: str, lawyer_id: int = Depends(get_current_lawy
             logger.error(f"Error confirming intake for case {case_id}: {e}")
             raise HTTPException(status_code=502, detail=f"Service Error: {str(e)}")
 
+class PinCaseRequest(BaseModel):
+    pinned: bool
+
+class DeleteCaseResponse(BaseModel):
+    case_id: str
+    deleted: bool
+
+@app.patch("/cases/{case_id}/pin")
+async def pin_case(case_id: str, request: PinCaseRequest, lawyer_id: int = Depends(get_current_lawyer)):
+    await _verify_ownership(case_id, lawyer_id)
+    logger.info(f"Pin case {case_id} -> pinned={request.pinned}")
+    async with httpx.AsyncClient() as client:
+        try:
+            res1 = await client.patch(f"{INTAKE_SERVICE_URL}/case/{case_id}/pin",
+                                       json={"pinned": request.pinned})
+            if res1.status_code != 200:
+                raise HTTPException(status_code=502, detail="Intake Service pin failed")
+            await client.patch(f"{LAWYER_SERVICE_URL}/case/{case_id}/pin",
+                               json={"pinned": request.pinned})
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="Service unavailable")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error pinning case {case_id}: {e}")
+            raise HTTPException(status_code=502, detail=f"Service Error: {str(e)}")
+    await manager.broadcast_dashboard({
+        "type": "CASE_PINNED",
+        "case_id": case_id,
+        "pinned": request.pinned,
+    })
+    return {"case_id": case_id, "pinned": request.pinned}
+
+@app.delete("/cases/{case_id}", response_model=DeleteCaseResponse)
+async def delete_case(case_id: str, lawyer_id: int = Depends(get_current_lawyer)):
+    await _verify_ownership(case_id, lawyer_id)
+    logger.info(f"Delete case {case_id}")
+    async with httpx.AsyncClient() as client:
+        try:
+            res1 = await client.delete(f"{INTAKE_SERVICE_URL}/case/{case_id}")
+            if res1.status_code != 200:
+                raise HTTPException(status_code=502, detail="Intake Service delete failed")
+            await client.delete(f"{LAWYER_SERVICE_URL}/case/{case_id}")
+        except httpx.RequestError:
+            raise HTTPException(status_code=502, detail="Service unavailable")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting case {case_id}: {e}")
+            raise HTTPException(status_code=502, detail=f"Service Error: {str(e)}")
+    await manager.broadcast_dashboard({
+        "type": "CASE_DELETED",
+        "case_id": case_id,
+    })
+    return {"case_id": case_id, "deleted": True}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
