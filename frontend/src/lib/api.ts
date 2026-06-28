@@ -1,17 +1,12 @@
 import axios from "axios";
 
 function getApiUrl(): string {
-  if (typeof window !== "undefined") {
-    return `http://${window.location.hostname}:8000`;
-  }
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
 
 function getWsUrl(): string {
-  if (typeof window !== "undefined") {
-    return `ws://${window.location.hostname}:8000`;
-  }
-  return "ws://localhost:8000";
+  const base = getApiUrl().replace(/\/api\/?$/, "");
+  return base.replace(/^http/, "ws");
 }
 
 export const API_URL = getApiUrl();

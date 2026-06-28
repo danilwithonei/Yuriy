@@ -3,6 +3,7 @@
 import { Bot, FileText, Loader2, Send, UserCircle } from "lucide-react";
 import React, { RefObject } from "react";
 
+import { API_URL } from "@/lib/api";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,10 +80,7 @@ export default function IntakeChat({
     );
     try {
       const token = localStorage.getItem("token");
-      const host =
-        typeof window !== "undefined" ? window.location.hostname : "localhost";
-      const apiUrl = `http://${host}:8000`;
-      const response = await fetch(`${apiUrl}/cases/${caseId}/intake/chat`, {
+      const response = await fetch(`${API_URL}/cases/${caseId}/intake/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
