@@ -46,6 +46,7 @@ mock_get_case.assert_called_once_with(id)
 ### 4. Данные должны быть грязными (стр. 72)
 
 Скучные данные рождают скучные тесты. Тестируй с:
+
 - UUID вразнобой, не `00000000-0000...`
 - Пустыми строками и null
 - Битым JSON и невалидными токенами
@@ -65,6 +66,7 @@ def test_register_giant_name(self, client):
 ### 5. Сетевой хаос (стр. 89)
 
 Любой внешний вызов может упасть. Проверяй:
+
 - `ConnectTimeout` — сервис завис навсегда
 - `Response(500)` — сервис упал
 - `Response(502)` — шлюз upstream не отвечает
@@ -79,6 +81,7 @@ assert res.status_code == 502
 ### 6. Каждый тест — песочница (стр. 103)
 
 Тесты не должны влиять друг на друга:
+
 - Фикстуры создают данные для конкретного теста
 - In-memory SQLite (`:memory:`) с `StaticPool` — каждое подключение видит те же данные
 - Мокаем `respx` свежим для каждого теста (`@respx.mock`)
@@ -87,6 +90,7 @@ assert res.status_code == 502
 ### 7. Тест должен падать по делу (стр. 118)
 
 Ошибка в тесте должна говорить, что именно сломалось:
+
 ```python
 assert resp.status_code == 403
 assert resp.json()["detail"] == "Access denied"
@@ -146,18 +150,18 @@ def test_ws_foreign_case_forbidden(self, client, auth_headers, respx_mock):
 
 ## Что обязательно проверять для каждого эндпоинта
 
-| Сценарий | Код | Инструмент |
-|----------|-----|------------|
-| Happy Path | 200 | — |
-| Нет токена | 401 | — |
-| Битый токен | 401 | — |
-| Просроченный токен | 401 | `_expired_token()` |
-| Чужой ресурс | 403 | `auth_headers_b` |
-| Ресурс не найден | 404 | `Response(404)` |
-| Сервис недоступен | 502 | `ConnectTimeout` или `Response(502)` |
-| Битый ответ сервиса | 502 | `Response(200, content=b"not json")` |
-| Битая входная дата | 400/422 | garbage/null/гигантский payload |
-| Мутационный тест | все убиты | `mutmut run` |
+| Сценарий            | Код       | Инструмент                           |
+| ------------------- | --------- | ------------------------------------ |
+| Happy Path          | 200       | —                                    |
+| Нет токена          | 401       | —                                    |
+| Битый токен         | 401       | —                                    |
+| Просроченный токен  | 401       | `_expired_token()`                   |
+| Чужой ресурс        | 403       | `auth_headers_b`                     |
+| Ресурс не найден    | 404       | `Response(404)`                      |
+| Сервис недоступен   | 502       | `ConnectTimeout` или `Response(502)` |
+| Битый ответ сервиса | 502       | `Response(200, content=b"not json")` |
+| Битая входная дата  | 400/422   | garbage/null/гигантский payload      |
+| Мутационный тест    | все убиты | `mutmut run`                         |
 
 ## Мутационное тестирование
 
@@ -170,11 +174,13 @@ COMPOSE_PROFILES=testing docker compose run --rm backend-tester mutmut run
 ```
 
 Смотрим выживших:
+
 ```bash
 COMPOSE_PROFILES=testing docker compose run --rm backend-tester mutmut results | grep survived
 ```
 
 Смотрим конкретного мутанта:
+
 ```bash
 COMPOSE_PROFILES=testing docker compose run --rm backend-tester mutmut show main.x__verify_ownership__mutmut_10
 ```
@@ -208,6 +214,60 @@ COMPOSE_PROFILES=testing docker compose run --rm backend-tester mutmut run
 
 ---
 
+## Pre-commit хуки
+
+Три хука в `.pre-commit-config.yaml` (корень проекта):
+
+| Хук             | Что делает                       | На чём бежит             |
+| --------------- | -------------------------------- | ------------------------ |
+| `ruff`          | Линтер + автофикс (`--fix`)      | `*.py`                   |
+| `ruff-format`   | Форматировщик                    | `*.py`                   |
+| `prettier`      | Форматирование TS/JS/JSON/CSS/MD | Frontend файлы           |
+| `frontend-lint` | ESLint (0-error policy)          | `frontend/**/*.{ts,tsx}` |
+
+### Установка
+
+```bash
+pip install pre-commit
+pre-commit install          # активировать хуки в .git/hooks/
+```
+
+### Использование
+
+Хуки бегут **автоматически** при `git commit`. Если хук поменял файлы — commit упадёт, нужно `git add` и повторить.
+
+Ручной запуск на всех файлах:
+
+```bash
+pre-commit run --all-files
+```
+
+На конкретных файлах:
+
+```bash
+pre-commit run --files backend/main.py frontend/src/app/page.tsx
+```
+
+### Что важно знать агенту
+
+1. **Перед commit** — запусти `pre-commit run --all-files` и убедись, что всё зелёное.
+2. **Ruff может переписать файлы** — после `ruff --fix` изменения нужно `git add`.
+3. **Prettier может переписать файлы** — после правок нужно `git add`.
+4. **NoUnusedLocals + jsx: "react-jsx"** — `import React from 'react'` теперь ошибка. Используй `import { useState } from 'react'`.
+5. **test_e2e.py исключён** из-за pre-existing E402 (не трогать).
+6. **Config живёт в `.pre-commit-config.yaml`** — обновлять при смене версий через `pre-commit autoupdate`.
+7. **Windows специфика** — local hook для eslint использует `cmd /c cd /d frontend && npm run lint` (из-за PowerShell execution policy).
+
+### Обновление версий
+
+```bash
+pre-commit autoupdate
+# Проверить, что новые версии работают:
+pre-commit run --all-files
+```
+
+---
+
 ## Миграции БД (Alembic)
 
 Alembic живёт в `packages/shared/`. Миграции запускаются **при старте сервиса** (intake-service, lawyer-service) через `run_migrations()`. Backend НЕ запускает миграции — там `create_db_and_tables()`.
@@ -232,12 +292,14 @@ packages/shared/
 Выполни шаги **строго по порядку**:
 
 **Шаг 1. Убедись, что shared-пакет установлен**
+
 ```bash
 # С хоста (не Docker):
 pip install -e packages/shared
 # или (если venv активна):
 pip install -e /app/packages/shared
 ```
+
 Если `yuriy_shared` не установлен, `alembic` не найдёт `script_location`.
 
 **Шаг 2. Проверь `env.py`**
@@ -246,6 +308,7 @@ pip install -e /app/packages/shared
 **Если миграция затрагивает новую модель — добавь её импорт в `env.py`.**
 
 Сейчас там импортированы:
+
 ```python
 import yuriy_shared.models.lawyer
 import yuriy_shared.models.user
@@ -254,17 +317,22 @@ import yuriy_shared.models.message
 ```
 
 Если добавил новую модель `yuriy_shared/models/foo.py` — добавь:
+
 ```python
 import yuriy_shared.models.foo  # noqa: E402, F401
 ```
+
 Без этого импорта `SQLModel.metadata` не увидит модель, и `--autogenerate` ничего не сгенерирует.
 
 **Шаг 3. Сгенерируй миграцию**
+
 ```bash
 cd packages/shared
 alembic -c alembic.ini revision --autogenerate -m "add_field_x_to_table_y"
 ```
+
 Эта команда:
+
 - Сравнит `SQLModel.metadata` (из импортированных моделей) с текущей БД
 - Создаст файл в `versions/` с автоматическими `upgrade()` и `downgrade()`
 
@@ -272,6 +340,7 @@ alembic -c alembic.ini revision --autogenerate -m "add_field_x_to_table_y"
 
 Прочитай созданный файл в `packages/shared/yuriy_shared/alembic/versions/`.
 Проверь:
+
 - `upgrade()` — правильные ли операции? Не удаляет ли лишнего?
 - `downgrade()` — корректно ли откатывает?
 - `down_revision` — правильный ли ID предыдущей миграции?
@@ -281,11 +350,13 @@ alembic -c alembic.ini revision --autogenerate -m "add_field_x_to_table_y"
 **Шаг 5. Если autogenerate не угадал — исправь вручную**
 
 Autogenerate может ошибиться. Типичные правки:
+
 - Заменить `op.alter_column()` на `with op.batch_alter_table()`
 - Добавить проверку `inspect()` для idempotency (см. 0002 как пример)
 - Убрать лишние изменения (например, `sa.DateTime()` → `sa.DateTime(timezone=True)`)
 
 **Шаг 6. Протестируй**
+
 ```bash
 docker compose --profile testing run --rm backend-tester
 ```
@@ -313,6 +384,7 @@ docker compose --profile testing run --rm backend-tester
 ```
 
 Порядок в сервисах:
+
 ```python
 create_db_and_tables()    # SQLModel metadata.create_all
 run_migrations(DATABASE_URL)  # Alembic upgrade head
