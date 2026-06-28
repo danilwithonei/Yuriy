@@ -1,42 +1,42 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useAuthStore } from '@/store/useAuthStore';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useAuthStore } from "@/store/useAuthStore";
 
 export default function RegisterPage() {
   const router = useRouter();
   const { register } = useAuthStore();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError("");
 
     if (password !== confirm) {
-      setError('Пароли не совпадают');
+      setError("Пароли не совпадают");
       return;
     }
     if (password.length < 4) {
-      setError('Пароль должен быть минимум 4 символа');
+      setError("Пароль должен быть минимум 4 символа");
       return;
     }
 
     setLoading(true);
     try {
       await register(email, name, password);
-      router.push('/dashboard');
+      router.push("/dashboard");
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Ошибка регистрации');
+      setError(err?.response?.data?.detail || "Ошибка регистрации");
     } finally {
       setLoading(false);
     }
@@ -79,18 +79,23 @@ export default function RegisterPage() {
             required
           />
 
-          {error && (
-            <p className="text-sm text-red-500 text-center">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 
-          <Button type="submit" disabled={loading} className="w-full h-11 rounded-xl">
-            {loading ? 'Регистрация...' : 'Зарегистрироваться'}
+          <Button
+            type="submit"
+            disabled={loading}
+            className="w-full h-11 rounded-xl"
+          >
+            {loading ? "Регистрация..." : "Зарегистрироваться"}
           </Button>
         </form>
 
         <p className="text-sm text-center text-gray-400">
-          Уже есть аккаунт?{' '}
-          <Link href="/login" className="text-black dark:text-white underline underline-offset-2">
+          Уже есть аккаунт?{" "}
+          <Link
+            href="/login"
+            className="text-black dark:text-white underline underline-offset-2"
+          >
             Войти
           </Link>
         </p>

@@ -1,17 +1,17 @@
-import axios from 'axios';
+import axios from "axios";
 
 function getApiUrl(): string {
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return `http://${window.location.hostname}:8000`;
   }
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
 
 function getWsUrl(): string {
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     return `ws://${window.location.hostname}:8000`;
   }
-  return 'ws://localhost:8000';
+  return "ws://localhost:8000";
 }
 
 export const API_URL = getApiUrl();
@@ -22,8 +22,8 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('token');
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -34,12 +34,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err?.response?.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+    if (err?.response?.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      window.location.href = "/login";
     }
     return Promise.reject(err);
-  }
+  },
 );
 
 export default api;

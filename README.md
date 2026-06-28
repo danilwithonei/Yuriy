@@ -81,18 +81,19 @@ Yuriy/
 
 ### Сервисы
 
-| Сервис | Роль | Порт | Зависит от shared |
-|--------|------|------|:---:|
-| **`backend`** | API-шлюз + Auth + WebSocket | `8000` | ✅ |
-| **`intake-service`** | LangGraph диалог с клиентом, Tavily-поиск | `8001` | ✅ |
-| **`lawyer-service`** | ИИ-ассистент юриста по досье дела | `8002` | ✅ |
-| **`max-bot`** | Бот для мессенджера MAX | — | ✅ |
-| **`frontend`** | Next.js 16 личный кабинет юриста | `3000` | ❌ |
-| **`telegram_bot`** | Telegram-бот (profile: deprecated) | — | ✅ |
+| Сервис               | Роль                                      | Порт   | Зависит от shared |
+| -------------------- | ----------------------------------------- | ------ | :---------------: |
+| **`backend`**        | API-шлюз + Auth + WebSocket               | `8000` |        ✅         |
+| **`intake-service`** | LangGraph диалог с клиентом, Tavily-поиск | `8001` |        ✅         |
+| **`lawyer-service`** | ИИ-ассистент юриста по досье дела         | `8002` |        ✅         |
+| **`max-bot`**        | Бот для мессенджера MAX                   | —      |        ✅         |
+| **`frontend`**       | Next.js 16 личный кабинет юриста          | `3000` |        ❌         |
+| **`telegram_bot`**   | Telegram-бот (profile: deprecated)        | —      |        ✅         |
 
 ## Shared package (`packages/yuriy_shared`)
 
 Единый пакет, устанавливаемый во все Python-сервисы как editable:
+
 ```bash
 pip install -e /app/packages/shared
 ```
@@ -108,6 +109,7 @@ alembic upgrade head
 ```
 
 Каждый сервис при старте вызывает `run_migrations(DATABASE_URL)`, Alembic автоматически определяет:
+
 - новая БД → создать все таблицы
 - существующая БД без alembic_version → stamp как head
 - существующая БД с alembic_version → применить pending миграции
@@ -129,15 +131,18 @@ alembic upgrade head
 ## Ключевые изменения
 
 ### SSE-стриминг интайка
+
 - `/cases/{id}/intake/chat` возвращает `text/event-stream` с токенами
 - Фронтенд показывает токены в реальном времени с мигающим курсором
 - `[IS_READY: true/false]` стриппится на backend, `is_ready` приходит в `done`-событии
 
 ### Research без graph resumption
+
 - `run_background_research` (**core/agent.py:68**) вызывает `research_node()` и `compiler_node()` напрямую, минуя `ainvoke(None)` — LangGraph 1.2.4 некорректно возобновляет прерванный граф с interrupt_before
 - Синхронные вызовы LLM/Tavily блокируют event loop — при `TAVILY_DISABLED` проблема не проявляется
 
 ### Компилятор досье
+
 - LLM вызывается без `with_structured_output` — Qwen в thinking-режиме не держит схему
 - Ответ парсится вручную: `_parse_json()` в **modules/compiler/node.py**
 - Промпт явно указывает ключи `title`, `summary`, `case_file`; парсер принимает и `case_title`/`case_summary`
@@ -195,6 +200,7 @@ docker compose up --build
 ```
 
 После запуска:
+
 - **Дашборд юриста**: `http://localhost:3000`
 - **Gateway API**: `http://localhost:8000`
 - **Intake Service**: `http://localhost:8001`
@@ -202,4 +208,4 @@ docker compose up --build
 
 ---
 
-*Разработано для автоматизации и повышения точности юридической работы.*
+_Разработано для автоматизации и повышения точности юридической работы._

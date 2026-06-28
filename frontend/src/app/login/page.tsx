@@ -1,30 +1,30 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useAuthStore } from '@/store/useAuthStore';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useAuthStore } from "@/store/useAuthStore";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuthStore();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError("");
     setLoading(true);
     try {
       await login(email, password);
-      router.push('/dashboard');
+      router.push("/dashboard");
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Ошибка входа');
+      setError(err?.response?.data?.detail || "Ошибка входа");
     } finally {
       setLoading(false);
     }
@@ -54,18 +54,23 @@ export default function LoginPage() {
             required
           />
 
-          {error && (
-            <p className="text-sm text-red-500 text-center">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-500 text-center">{error}</p>}
 
-          <Button type="submit" disabled={loading} className="w-full h-11 rounded-xl">
-            {loading ? 'Вход...' : 'Войти'}
+          <Button
+            type="submit"
+            disabled={loading}
+            className="w-full h-11 rounded-xl"
+          >
+            {loading ? "Вход..." : "Войти"}
           </Button>
         </form>
 
         <p className="text-sm text-center text-gray-400">
-          Нет аккаунта?{' '}
-          <Link href="/register" className="text-black dark:text-white underline underline-offset-2">
+          Нет аккаунта?{" "}
+          <Link
+            href="/register"
+            className="text-black dark:text-white underline underline-offset-2"
+          >
             Зарегистрироваться
           </Link>
         </p>

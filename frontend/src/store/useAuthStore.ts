@@ -1,6 +1,6 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
-import api from '@/lib/api';
+import api from "@/lib/api";
 
 interface Lawyer {
   id: number;
@@ -27,37 +27,37 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   checkAuth: async () => {
     set({ isChecking: true });
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem("token");
     if (!token) {
       set({ isChecking: false, isReady: true });
       return;
     }
     try {
-      const res = await api.get('/auth/me');
+      const res = await api.get("/auth/me");
       set({ lawyer: res.data, token, isChecking: false, isReady: true });
     } catch {
-      localStorage.removeItem('token');
+      localStorage.removeItem("token");
       set({ isChecking: false, isReady: true });
     }
   },
 
   login: async (email, password) => {
-    const res = await api.post('/auth/login', { email, password });
+    const res = await api.post("/auth/login", { email, password });
     const { token, lawyer } = res.data;
-    localStorage.setItem('token', token);
+    localStorage.setItem("token", token);
     set({ token, lawyer });
   },
 
   register: async (email, name, password) => {
-    const res = await api.post('/auth/register', { email, name, password });
+    const res = await api.post("/auth/register", { email, name, password });
     const { token, lawyer } = res.data;
-    localStorage.setItem('token', token);
+    localStorage.setItem("token", token);
     set({ token, lawyer });
   },
 
   logout: () => {
-    localStorage.removeItem('token');
+    localStorage.removeItem("token");
     set({ lawyer: null, token: null });
-    window.location.href = '/login';
+    window.location.href = "/login";
   },
 }));

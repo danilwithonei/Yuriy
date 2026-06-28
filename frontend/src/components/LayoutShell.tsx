@@ -1,14 +1,18 @@
-'use client';
+"use client";
 
-import { usePathname, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-import { AppSidebar } from '@/components/AppSidebar';
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
-import { WebSocketProvider } from '@/components/WebSocketProvider';
-import { useAuthStore } from '@/store/useAuthStore';
+import { AppSidebar } from "@/components/AppSidebar";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { WebSocketProvider } from "@/components/WebSocketProvider";
+import { useAuthStore } from "@/store/useAuthStore";
 
-const PUBLIC_ROUTES = ['/login', '/register'];
+const PUBLIC_ROUTES = ["/login", "/register"];
 
 export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -23,9 +27,9 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
     if (!isReady) return;
     const isPublic = PUBLIC_ROUTES.includes(pathname);
     if (!lawyer && !isPublic) {
-      router.push('/login');
+      router.push("/login");
     } else if (lawyer && isPublic) {
-      router.push('/dashboard');
+      router.push("/dashboard");
     }
   }, [isReady, lawyer, pathname, router]);
 

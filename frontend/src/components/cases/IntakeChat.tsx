@@ -1,22 +1,22 @@
-'use client';
+"use client";
 
-import { Bot, FileText, Loader2, Send, UserCircle } from 'lucide-react';
-import React, { RefObject } from 'react';
+import { Bot, FileText, Loader2, Send, UserCircle } from "lucide-react";
+import React, { RefObject } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import type { CaseData } from '@/types/case';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import type { CaseData } from "@/types/case";
 
 function formatTime(ts?: string): string {
-  if (!ts) return '';
+  if (!ts) return "";
   const d = new Date(ts);
   const now = new Date();
-  const hh = d.getHours().toString().padStart(2, '0');
-  const mm = d.getMinutes().toString().padStart(2, '0');
+  const hh = d.getHours().toString().padStart(2, "0");
+  const mm = d.getMinutes().toString().padStart(2, "0");
   if (d.toDateString() === now.toDateString()) return `${hh}:${mm}`;
-  const dd = d.getDate().toString().padStart(2, '0');
-  const mo = (d.getMonth() + 1).toString().padStart(2, '0');
+  const dd = d.getDate().toString().padStart(2, "0");
+  const mo = (d.getMonth() + 1).toString().padStart(2, "0");
   return `${dd}.${mo} ${hh}:${mm}`;
 }
 
@@ -38,61 +38,83 @@ interface IntakeChatProps {
 }
 
 export default function IntakeChat({
-  data, setData, caseId,
-  intakeInput, setIntakeInput,
-  isIntakeSending, setIntakeReady,
-  intakeReady, setIntakeError,
-  streamingIntakeContent, setStreamingIntakeContent,
+  data,
+  setData,
+  caseId,
+  intakeInput,
+  setIntakeInput,
+  isIntakeSending,
+  setIntakeReady,
+  intakeReady,
+  setIntakeError,
+  streamingIntakeContent,
+  setStreamingIntakeContent,
   setIsIntakeSending,
   handleIntakeConfirm,
   scrollRef,
 }: IntakeChatProps) {
-  const intakeMessages = data.messages.filter(m => m.sender_role === 'client' || m.sender_role === 'ai_intake');
+  const intakeMessages = data.messages.filter(
+    (m) => m.sender_role === "client" || m.sender_role === "ai_intake",
+  );
   const status = data.case.status;
 
   const handleIntakeSend = async () => {
     if (!intakeInput.trim() || isIntakeSending) return;
     const msg = intakeInput;
-    setIntakeInput('');
+    setIntakeInput("");
     setIsIntakeSending(true);
     setIntakeError(null);
-    setStreamingIntakeContent('');
+    setStreamingIntakeContent("");
     const clientTs = new Date().toISOString();
-    setData(prev => prev ? {
-      ...prev,
-      messages: [...prev.messages, { sender_role: 'client', content: msg, timestamp: clientTs }]
-    } : prev);
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            messages: [
+              ...prev.messages,
+              { sender_role: "client", content: msg, timestamp: clientTs },
+            ],
+          }
+        : prev,
+    );
     try {
-      const token = localStorage.getItem('token');
-      const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      const token = localStorage.getItem("token");
+      const host =
+        typeof window !== "undefined" ? window.location.hostname : "localhost";
       const apiUrl = `http://${host}:8000`;
       const response = await fetch(`${apiUrl}/cases/${caseId}/intake/chat`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ message: msg })
+        body: JSON.stringify({ message: msg }),
       });
       if (!response.ok) {
-        let errMsg = 'Ошибка отправки';
-        try { errMsg = (await response.json()).detail; } catch {}
+        let errMsg = "Ошибка отправки";
+        try {
+          errMsg = (await response.json()).detail;
+        } catch {}
         throw new Error(errMsg);
       }
       const reader = response.body!.getReader();
       const decoder = new TextDecoder();
-      let buffer = '';
-      let fullContent = '';
+      let buffer = "";
+      let fullContent = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
+          if (!line.startsWith("data: ")) continue;
           let d;
-          try { d = JSON.parse(line.slice(6)); } catch { continue; }
+          try {
+            d = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
           if (d.token) {
             fullContent += d.token;
             setStreamingIntakeContent(fullContent);
@@ -108,15 +130,26 @@ export default function IntakeChat({
           }
         }
       }
-      setStreamingIntakeContent('');
-      setData(prev => prev ? {
-        ...prev,
-        messages: [...prev.messages, { sender_role: 'ai_intake', content: fullContent, timestamp: new Date().toISOString() }]
-      } : prev);
+      setStreamingIntakeContent("");
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: [
+                ...prev.messages,
+                {
+                  sender_role: "ai_intake",
+                  content: fullContent,
+                  timestamp: new Date().toISOString(),
+                },
+              ],
+            }
+          : prev,
+      );
     } catch (e: any) {
-      const errMsg = e?.message || 'Ошибка отправки';
+      const errMsg = e?.message || "Ошибка отправки";
       setIntakeError(errMsg);
-      setStreamingIntakeContent('');
+      setStreamingIntakeContent("");
     } finally {
       setIsIntakeSending(false);
     }
@@ -124,15 +157,18 @@ export default function IntakeChat({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {status === 'researching' ? (
+      {status === "researching" ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center gap-4 text-center">
             <div className="flex items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Идёт исследование...</span>
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                Идёт исследование...
+              </span>
             </div>
             <p className="text-xs text-gray-400 max-w-xs">
-              ИИ изучает законы по вашему делу и формирует досье. Это может занять до минуты.
+              ИИ изучает законы по вашему делу и формирует досье. Это может
+              занять до минуты.
             </p>
           </div>
         </div>
@@ -153,16 +189,20 @@ export default function IntakeChat({
                   <div className="space-y-2">
                     <h3 className="font-medium text-sm">Приём данных</h3>
                     <p className="text-xs text-gray-400 max-w-sm">
-                      Опишите ситуацию от лица клиента. ИИ будет задавать уточняющие вопросы.
+                      Опишите ситуацию от лица клиента. ИИ будет задавать
+                      уточняющие вопросы.
                     </p>
                   </div>
                 </div>
               )}
 
               {intakeMessages.map((m, i) => (
-                <div key={i} className="flex gap-4 group animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div
+                  key={i}
+                  className="flex gap-4 group animate-in fade-in slide-in-from-bottom-2 duration-300"
+                >
                   <Avatar className="h-8 w-8 shrink-0 border shadow-sm">
-                    {m.sender_role === 'client' ? (
+                    {m.sender_role === "client" ? (
                       <AvatarFallback className="bg-gray-100 text-gray-600">
                         <UserCircle className="h-4 w-4" />
                       </AvatarFallback>
@@ -174,8 +214,14 @@ export default function IntakeChat({
                   </Avatar>
                   <div className="flex-1 space-y-1.5 overflow-hidden">
                     <div className="font-semibold text-sm flex items-center gap-2">
-                      {m.sender_role === 'client' ? 'Вы (от лица клиента)' : 'ИИ-Приёмщик'}
-                      {m.timestamp && <span className="text-[10px] text-gray-400 font-normal">{formatTime(m.timestamp)}</span>}
+                      {m.sender_role === "client"
+                        ? "Вы (от лица клиента)"
+                        : "ИИ-Приёмщик"}
+                      {m.timestamp && (
+                        <span className="text-[10px] text-gray-400 font-normal">
+                          {formatTime(m.timestamp)}
+                        </span>
+                      )}
                     </div>
                     <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none">
                       {m.content}
@@ -203,7 +249,9 @@ export default function IntakeChat({
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.3s]" />
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.15s]" />
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce" />
-                        <span className="text-xs text-gray-400 ml-2 font-medium">Анализирует...</span>
+                        <span className="text-xs text-gray-400 ml-2 font-medium">
+                          Анализирует...
+                        </span>
                       </div>
                     )}
                   </div>
@@ -231,15 +279,17 @@ export default function IntakeChat({
                 <Input
                   value={intakeInput}
                   onChange={(e) => setIntakeInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleIntakeSend()}
+                  onKeyDown={(e) => e.key === "Enter" && handleIntakeSend()}
                   placeholder="Опишите ситуацию от лица клиента..."
                   className="border-0 focus-visible:ring-0 bg-transparent h-12 py-3 px-4 text-[15px]"
                   disabled={isIntakeSending || intakeReady}
                 />
-                <Button 
-                  size="icon" 
-                  onClick={handleIntakeSend} 
-                  disabled={isIntakeSending || intakeReady || !intakeInput.trim()}
+                <Button
+                  size="icon"
+                  onClick={handleIntakeSend}
+                  disabled={
+                    isIntakeSending || intakeReady || !intakeInput.trim()
+                  }
                   className="h-10 w-10 rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
                 >
                   <Send className="h-4 w-4" />
