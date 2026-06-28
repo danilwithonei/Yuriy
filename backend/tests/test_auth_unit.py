@@ -1,8 +1,8 @@
 import pytest
 from fastapi import HTTPException
-from fastapi.security import HTTPAuthorizationCredentials
 
-from auth import hash_password, verify_password, decode_token, get_current_lawyer
+from auth import decode_token, get_current_lawyer, hash_password, verify_password
+
 
 class TestVerifyPassword:
     def test_verify_password_correct(self):
@@ -16,6 +16,7 @@ class TestVerifyPassword:
     def test_verify_password_empty(self):
         hashed = hash_password("password")
         assert verify_password("", hashed) is False
+
 
 class TestDecodeToken:
     def test_decode_token_malformed(self):
@@ -33,6 +34,7 @@ class TestDecodeToken:
         with pytest.raises(HTTPException) as exc:
             decode_token("eyJ.eyJ.eyJ")
         assert exc.value.status_code == 401
+
 
 class TestGetCurrentLawyer:
     @pytest.mark.asyncio

@@ -1,8 +1,7 @@
-import pytest
 import respx
-from httpx import Response, ConnectTimeout
-
 from conftest import INTAKE_URL
+from httpx import ConnectTimeout, Response
+
 
 class TestListCases:
     @respx.mock
@@ -26,6 +25,8 @@ class TestListCases:
 
     @respx.mock
     def test_list_cases_intake_garbage_response(self, client, auth_headers, respx_mock):
-        respx_mock.get(f"{INTAKE_URL}/cases", params={"lawyer_id": 1}).mock(return_value=Response(200, content=b"not json"))
+        respx_mock.get(f"{INTAKE_URL}/cases", params={"lawyer_id": 1}).mock(
+            return_value=Response(200, content=b"not json")
+        )
         resp = client.get("/cases", headers=auth_headers)
         assert resp.status_code == 502

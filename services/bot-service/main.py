@@ -25,6 +25,7 @@ dp = Dispatcher()
 # Временное хранилище активных дел пользователей
 active_cases = {}
 
+
 @dp.message(CommandStart())
 async def send_welcome(message: types.Message):
     user_id = message.from_user.id
@@ -35,26 +36,32 @@ async def send_welcome(message: types.Message):
         "Опишите, пожалуйста, вашу юридическую проблему, и я помогу вам составить заявку для нашего специалиста."
     )
 
+
 @dp.callback_query(F.data.startswith("confirm_"))
 async def process_confirm(callback: types.CallbackQuery):
     case_id = int(callback.data.split("_")[1])
     user_id = callback.from_user.id
     logger.info(f"Confirmation callback for case_id={case_id} from user_id={user_id}")
-    
+
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(f"{API_URL}/confirm", json={"case_id": case_id}) as response:
+            async with session.post(
+                f"{API_URL}/confirm", json={"case_id": case_id}
+            ) as response:
                 response.raise_for_status()
                 logger.info(f"Case {case_id} confirmed in Intake Service")
-        
+
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer("✅ <b>Ваша заявка успешно сформирована и передана юристу! Ожидайте ответа.</b>")
+        await callback.message.answer(
+            "✅ <b>Ваша заявка успешно сформирована и передана юристу! Ожидайте ответа.</b>"
+        )
         active_cases.pop(user_id, None)
         await callback.answer()
 
     except Exception as e:
         logger.error(f"Error confirming case {case_id}: {e}")
         await callback.answer("Ошибка при подтверждении.", show_alert=True)
+
 
 @dp.message()
 async def handle_message(message: types.Message):
@@ -73,18 +80,20 @@ async def handle_message(message: types.Message):
                 async with session.post(f"{API_URL}/chat", json=payload) as response:
                     response.raise_for_status()
                     data = await response.json()
-        
+
         active_cases[user_id] = data["case_id"]
         ai_response = data["response"]
         is_ready = data.get("is_ready")
-        
+
         logger.info(f"AI response received. is_ready={is_ready}")
-        
+
         if is_ready:
             builder = InlineKeyboardBuilder()
-            builder.row(types.InlineKeyboardButton(
-                text="🚀 Подтвердить отправку", 
-                callback_data=f"confirm_{data['case_id']}")
+            builder.row(
+                types.InlineKeyboardButton(
+                    text="🚀 Подтвердить отправку",
+                    callback_data=f"confirm_{data['case_id']}",
+                )
             )
             await message.answer(ai_response, reply_markup=builder.as_markup())
         else:
@@ -94,9 +103,11 @@ async def handle_message(message: types.Message):
         logger.error(f"Error communicating with Intake Service: {e}")
         await message.answer("Извините, произошла техническая ошибка.")
 
+
 async def main():
     logger.info("Bot service starting...")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

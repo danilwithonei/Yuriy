@@ -1,30 +1,33 @@
-from typing import AsyncGenerator, Tuple, Dict, Any
+from collections.abc import AsyncGenerator
+from typing import Any
+
 from langchain_core.messages import HumanMessage
-from graph import app_graph
-from modules.research.node import research_node
-from modules.compiler.node import compiler_node
+
 from core.logger import logger
+from graph import app_graph
+from modules.compiler.node import compiler_node
+from modules.research.node import research_node
+
+# TODO: Known LangGraph issues:
+# 1. run_background_research calls research_node + compiler_node directly (sync),
+#    bypassing graph. Should use ainvoke or astream_events once LangGraph supports
+#    streaming + background execution without graph state corruption.
+# 2. astream_events version="v1" may need migration to "v2" in future LangGraph release.
+# 3. Graph state access via thread_id is fragile — no lock on concurrent access.
 
 
 class AgentService:
     @staticmethod
-    async def handle_user_message_stream(case_id: str, message: str) -> AsyncGenerator[Tuple[str, Any], None]:
+    async def handle_user_message_stream(case_id: str, message: str) -> AsyncGenerator[tuple[str, Any], None]:
         config = {"configurable": {"thread_id": str(case_id)}}
 
         current_state = app_graph.get_state(config)
 
         if current_state.next and "wait_for_input" in current_state.next:
-            app_graph.update_state(
-                config,
-                {"messages": [HumanMessage(content=message)]},
-                as_node="wait_for_input"
-            )
+            app_graph.update_state(config, {"messages": [HumanMessage(content=message)]}, as_node="wait_for_input")
             invoke_input = None
         else:
-            invoke_input = {
-                "messages": [HumanMessage(content=message)],
-                "case_id": case_id
-            }
+            invoke_input = {"messages": [HumanMessage(content=message)], "case_id": case_id}
 
         buffer = ""
         try:
@@ -57,15 +60,12 @@ class AgentService:
     async def confirm_and_resume(case_id: str) -> bool:
         config = {"configurable": {"thread_id": str(case_id)}}
 
-        app_graph.update_state(
-            config,
-            {"is_confirmed": True}
-        )
+        app_graph.update_state(config, {"is_confirmed": True})
 
         return True
 
     @staticmethod
-    async def run_background_research(case_id: str) -> Dict[str, Any]:
+    async def run_background_research(case_id: str) -> dict[str, Any]:
         config = {"configurable": {"thread_id": str(case_id)}}
         state = app_graph.get_state(config)
         current = dict(state.values)

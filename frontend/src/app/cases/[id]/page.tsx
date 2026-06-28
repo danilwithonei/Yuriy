@@ -1,18 +1,11 @@
 'use client';
 
-import React, { useEffect, useState, use, useRef } from 'react';
+import { History } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import api, { API_URL } from '@/lib/api';
-import { Send, User, Bot, History, FileText, MessageSquare, Info, ChevronRight, UserCircle, Loader2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import React, { use, useEffect, useRef, useState } from 'react';
 
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { useCaseChat } from '@/hooks/useCaseChat';
-import { useCaseStore } from '@/store/useCaseStore';
+import AssistantChat from '@/components/cases/AssistantChat';
+import IntakeChat from '@/components/cases/IntakeChat';
 import {
   Sheet,
   SheetContent,
@@ -21,38 +14,10 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-
-interface DBMessage {
-  sender_role: string;
-  content: string;
-  timestamp: string;
-}
-
-interface CaseData {
-  case: {
-    id: string;
-    status: string;
-    case_file: string | null;
-    client_id: number;
-    case_type: string;
-    title?: string | null;
-    summary?: string | null;
-  };
-  messages: DBMessage[];
-}
-
-function formatTime(ts?: string): string {
-  if (!ts) return '';
-  const d = new Date(ts);
-  const now = new Date();
-  const hh = d.getHours().toString().padStart(2, '0');
-  const mm = d.getMinutes().toString().padStart(2, '0');
-  if (d.toDateString() === now.toDateString()) return `${hh}:${mm}`;
-  const dd = d.getDate().toString().padStart(2, '0');
-  const mo = (d.getMonth() + 1).toString().padStart(2, '0');
-  return `${dd}.${mo} ${hh}:${mm}`;
-}
+import { useCaseChat } from '@/hooks/useCaseChat';
+import api from '@/lib/api';
+import { useCaseStore } from '@/store/useCaseStore';
+import type { CaseData } from '@/types/case';
 
 export default function CaseDetails({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -111,78 +76,6 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
     setChatInput('');
   };
 
-  const handleIntakeSend = async () => {
-    if (!intakeInput.trim() || isIntakeSending) return;
-    const msg = intakeInput;
-    setIntakeInput('');
-    setIsIntakeSending(true);
-    setIntakeError(null);
-    setStreamingIntakeContent('');
-    // Показываем сообщение клиента сразу (optimistic)
-    const clientTs = new Date().toISOString();
-    setData(prev => prev ? {
-      ...prev,
-      messages: [...prev.messages, { sender_role: 'client', content: msg, timestamp: clientTs }]
-    } : prev);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/cases/${id}/intake/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({ message: msg })
-      });
-      if (!response.ok) {
-        let errMsg = 'Ошибка отправки';
-        try { errMsg = (await response.json()).detail; } catch {}
-        throw new Error(errMsg);
-      }
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let fullContent = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          let data;
-          try { data = JSON.parse(line.slice(6)); } catch { continue; }
-          if (data.token) {
-            fullContent += data.token;
-            setStreamingIntakeContent(fullContent);
-          } else if (data.response) {
-            fullContent = data.response;
-            setStreamingIntakeContent(fullContent);
-          } else if (data.is_ready !== undefined) {
-            setIntakeReady(data.is_ready);
-          } else if (data.done) {
-            if (data.is_ready !== undefined) setIntakeReady(data.is_ready);
-          } else if (data.error) {
-            throw new Error(data.error);
-          }
-        }
-      }
-      // Финализируем: добавляем сообщение в список
-      setStreamingIntakeContent('');
-      setData(prev => prev ? {
-        ...prev,
-        messages: [...prev.messages, { sender_role: 'ai_intake', content: fullContent, timestamp: new Date().toISOString() }]
-      } : prev);
-    } catch (e: any) {
-      const errMsg = e?.message || 'Ошибка отправки';
-      setIntakeError(errMsg);
-      setStreamingIntakeContent('');
-    } finally {
-      setIsIntakeSending(false);
-    }
-  };
-
   const handleIntakeConfirm = async () => {
     try {
       await api.post(`/cases/${id}/intake/confirm`);
@@ -228,13 +121,11 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
   const isDirect = caseType === 'direct';
   const isIntakeMode = caseType === 'intake' && (status === 'open' || status === 'researching');
   const isAssistantMode = caseType === 'direct' || (caseType === 'intake' && status === 'ready');
-
-  // Intake history messages
   const intakeMessages = data.messages.filter(m => m.sender_role === 'client' || m.sender_role === 'ai_intake');
 
   return (
     <div className="flex flex-col flex-1 h-full overflow-hidden bg-white dark:bg-[#171717]">
-      {/* Шапка чата */}
+      {/* Header */}
       <div className="h-14 border-b dark:border-gray-800 px-6 flex items-center justify-between sticky top-0 z-10 bg-white/80 dark:bg-[#171717]/80 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <h1 className="font-semibold text-sm">{data.case.title || (isDirect ? 'Чат' : 'Дело') + ' №' + id.slice(0, 8)}</h1>
@@ -273,21 +164,18 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
                     <SheetTitle>История приема</SheetTitle>
                     <SheetDescription>Первичный диалог клиента с ИИ-приемщиком</SheetDescription>
                   </SheetHeader>
-                  <ScrollArea className="flex-1">
-                    <div className="p-8 space-y-8">
-                      {intakeMessages.map((m, i) => (
-                        <div key={i} className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2 text-[10px] uppercase font-bold text-gray-400">
-                            {m.sender_role === 'client' ? <UserCircle className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
-                            {m.sender_role === 'client' ? 'Клиент' : 'ИИ-Помощник'}
-                          </div>
-                          <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 bg-gray-50/50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 shadow-sm">
-                            {m.content}
-                          </p>
+                  <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                    {intakeMessages.map((m, i) => (
+                      <div key={i} className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2 text-[10px] uppercase font-bold text-gray-400">
+                          {m.sender_role === 'client' ? 'Клиент' : 'ИИ-Помощник'}
                         </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
+                        <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300 bg-gray-50/50 dark:bg-gray-900/50 p-4 rounded-xl border dark:border-gray-800 shadow-sm">
+                          {m.content}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </SheetContent>
             </Sheet>
@@ -295,6 +183,7 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
         </div>
       </div>
 
+      {/* Error Banner */}
       {error && (
         <div className="mx-6 mt-3 flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30 text-sm text-red-700 dark:text-red-400 animate-in fade-in slide-in-from-top-2 duration-300">
           <span>{error}</span>
@@ -313,285 +202,42 @@ export default function CaseDetails({ params }: { params: Promise<{ id: string }
         </div>
       )}
 
-      {/* INTAKE MODE */}
+      {/* Intake Mode */}
       {isIntakeMode && (
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {status === 'researching' ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-4 text-center">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Идёт исследование...</span>
-                </div>
-                <p className="text-xs text-gray-400 max-w-xs">
-                  ИИ изучает законы по вашему делу и формирует досье. Это может занять до минуты.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div
-                ref={scrollRef}
-                className="flex-1 overflow-y-auto scroll-smooth no-scrollbar"
-              >
-                <div className="max-w-5xl mx-auto py-10 px-6 space-y-6">
-                  {intakeMessages.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                      <Avatar className="h-12 w-12 border shadow-sm">
-                        <AvatarFallback className="bg-amber-50 text-amber-600">
-                          <FileText className="h-6 w-6" />
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="space-y-2">
-                        <h3 className="font-medium text-sm">Приём данных</h3>
-                        <p className="text-xs text-gray-400 max-w-sm">
-                          Опишите ситуацию от лица клиента. ИИ будет задавать уточняющие вопросы.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {intakeMessages.map((m, i) => (
-                    <div key={i} className="flex gap-4 group animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <Avatar className="h-8 w-8 shrink-0 border shadow-sm">
-                        {m.sender_role === 'client' ? (
-                          <AvatarFallback className="bg-gray-100 text-gray-600">
-                            <UserCircle className="h-4 w-4" />
-                          </AvatarFallback>
-                        ) : (
-                          <AvatarFallback className="bg-amber-50 text-amber-600">
-                            <Bot className="h-4 w-4" />
-                          </AvatarFallback>
-                        )}
-                      </Avatar>
-                      <div className="flex-1 space-y-1.5 overflow-hidden">
-                        <div className="font-semibold text-sm flex items-center gap-2">
-                          {m.sender_role === 'client' ? 'Вы (от лица клиента)' : 'ИИ-Приёмщик'}
-                          {m.timestamp && <span className="text-[10px] text-gray-400 font-normal">{formatTime(m.timestamp)}</span>}
-                        </div>
-                        <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none">
-                          {m.content}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {isIntakeSending && (
-                    <div className="flex gap-4 group animate-in fade-in duration-500">
-                      <Avatar className="h-8 w-8 shrink-0 border shadow-sm">
-                        <AvatarFallback className="bg-amber-50 text-amber-600">
-                          <Bot className="h-4 w-4" />
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 space-y-2 overflow-hidden">
-                        <div className="font-semibold text-sm">ИИ-Приёмщик</div>
-                        {streamingIntakeContent ? (
-                          <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200">
-                            {streamingIntakeContent}
-                            <span className="inline-block w-1.5 h-4 bg-amber-500 ml-0.5 animate-pulse" />
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 py-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.3s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.15s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce" />
-                            <span className="text-xs text-gray-400 ml-2 font-medium">Анализирует...</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {intakeReady && (
-                    <div className="flex justify-center pt-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                      <Button
-                        onClick={handleIntakeConfirm}
-                        className="h-11 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-lg"
-                      >
-                        Подтвердить отправку
-                      </Button>
-                    </div>
-                  )}
-
-                  <div className="h-8" />
-                </div>
-              </div>
-
-              <div className="px-6 pb-4 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-[#171717] dark:via-[#171717]/80">
-                <div className="max-w-5xl mx-auto">
-                  <div className="relative flex items-center bg-white dark:bg-[#212121] border dark:border-gray-800 shadow-2xl rounded-2xl overflow-hidden p-1.5 focus-within:ring-2 focus-within:ring-amber-500/20 transition-all">
-                    <Input
-                      value={intakeInput}
-                      onChange={(e) => setIntakeInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleIntakeSend()}
-                      placeholder="Опишите ситуацию от лица клиента..."
-                      className="border-0 focus-visible:ring-0 bg-transparent h-12 py-3 px-4 text-[15px]"
-                      disabled={isIntakeSending || intakeReady}
-                    />
-                    <Button 
-                      size="icon" 
-                      onClick={handleIntakeSend} 
-                      disabled={isIntakeSending || intakeReady || !intakeInput.trim()}
-                      className="h-10 w-10 rounded-xl bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        <IntakeChat
+          data={data}
+          setData={setData}
+          caseId={caseId}
+          intakeInput={intakeInput}
+          setIntakeInput={setIntakeInput}
+          isIntakeSending={isIntakeSending}
+          setIntakeReady={setIntakeReady}
+          intakeReady={intakeReady}
+          setIntakeError={setIntakeError}
+          streamingIntakeContent={streamingIntakeContent}
+          setStreamingIntakeContent={setStreamingIntakeContent}
+          setIsIntakeSending={setIsIntakeSending}
+          handleIntakeConfirm={handleIntakeConfirm}
+          scrollRef={scrollRef}
+        />
       )}
 
-      {/* ASSISTANT MODE */}
+      {/* Assistant Mode */}
       {isAssistantMode && (
-        <>
-          <div 
-            ref={scrollRef}
-            className="flex-1 overflow-y-auto scroll-smooth no-scrollbar"
-          >
-            <div className="max-w-5xl mx-auto py-10 px-6 space-y-12">
-              
-              {!isDirect && (
-                <div className="flex gap-4 group">
-                  <Avatar className="h-8 w-8 shrink-0 border shadow-sm">
-                    <AvatarFallback className="bg-emerald-50 text-emerald-600">
-                      <FileText className="h-4 w-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 space-y-3 overflow-hidden">
-                    <div className="font-semibold text-sm flex items-center gap-2">
-                      Сформированное досье
-                    </div>
-                    <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none bg-emerald-50/30 dark:bg-emerald-900/10 p-6 rounded-2xl border border-emerald-100/50 dark:border-emerald-800/20 shadow-sm">
-                      {data.case.case_file ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {data.case.case_file}
-                        </ReactMarkdown>
-                      ) : (
-                        <div className="flex items-center gap-3 py-4 text-emerald-600/60 dark:text-emerald-400/60 italic">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Досье не сформировано
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {chatMessages.length === 0 && isDirect && (
-                <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <Avatar className="h-12 w-12 border shadow-sm">
-                    <AvatarFallback className="bg-blue-50 text-blue-600">
-                      <Bot className="h-6 w-6" />
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-sm">Чем могу помочь?</h3>
-                    <p className="text-xs text-gray-400 max-w-sm">
-                      Задайте юридический вопрос, и я найду нужную информацию с веб-поиском.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {chatMessages.length === 0 && !isDirect && data.case.case_file && (
-                <div className="flex flex-col items-center justify-center py-10 text-center space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <Avatar className="h-10 w-10 border shadow-sm">
-                    <AvatarFallback className="bg-blue-50 text-blue-600 italic font-serif">Y</AvatarFallback>
-                  </Avatar>
-                  <div className="space-y-1">
-                    <h3 className="font-medium text-sm">Досье готово к анализу</h3>
-                    <p className="text-xs text-gray-400 max-w-sm">
-                      Вы можете задать уточняющие вопросы по этому делу или попросить меня подготовить документы.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {chatMessages.map((m, i) => (
-                <div key={i} className="flex gap-4 group animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <Avatar className="h-8 w-8 shrink-0 border shadow-sm">
-                    {m.role === 'lawyer' ? (
-                      <AvatarFallback className="bg-gray-100 text-gray-600">U</AvatarFallback>
-                    ) : (
-                      <AvatarFallback className="bg-blue-50 text-blue-600">
-                        <Bot className="h-4 w-4" />
-                      </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div className="flex-1 space-y-1.5 overflow-hidden">
-                    <div className="font-semibold text-sm flex items-center gap-2">
-                      {m.role === 'lawyer' ? 'Вы' : 'ИИ-Ассистент'}
-                      {m.timestamp && <span className="text-[10px] text-gray-400 font-normal">{formatTime(m.timestamp)}</span>}
-                    </div>
-                    <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {m.content}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {isThinking && (
-                <div className="flex gap-4 group animate-in fade-in duration-500">
-                  <Avatar className="h-8 w-8 shrink-0 border shadow-sm">
-                    <AvatarFallback className="bg-blue-50 text-blue-600">
-                      <Bot className="h-4 w-4" />
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 space-y-2 overflow-hidden">
-                    <div className="font-semibold text-sm">ИИ-Ассистент</div>
-                    <div className="text-[15px] leading-relaxed text-gray-800 dark:text-gray-200 prose prose-neutral dark:prose-invert max-w-none">
-                      {streamingContent ? (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {streamingContent}
-                        </ReactMarkdown>
-                      ) : (
-                        <div className="flex items-center gap-1.5 py-1">
-                          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.3s]" />
-                          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce [animation-delay:-0.15s]" />
-                          <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce" />
-                          <span className="text-xs text-gray-400 ml-2 font-medium">Ищет информацию...</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="h-32" />
-            </div>
-          </div>
-
-          <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-[#171717] dark:via-[#171717]/80 pointer-events-none">
-            <div className="max-w-5xl mx-auto relative pointer-events-auto">
-              <div className="relative flex items-center bg-white dark:bg-[#212121] border dark:border-gray-800 shadow-2xl rounded-2xl overflow-hidden p-1.5 focus-within:ring-2 focus-within:ring-black/5 dark:focus-within:ring-white/5 transition-all">
-                <Input
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                  placeholder={isDirect ? "Задайте юридический вопрос..." : "Спросите ассистента о деталях дела..."}
-                  className="border-0 focus-visible:ring-0 bg-transparent h-12 py-3 px-4 text-[15px]"
-                  disabled={!isConnected}
-                />
-                <Button 
-                  size="icon" 
-                  onClick={handleSend} 
-                  disabled={!isConnected || !chatInput.trim()}
-                  className="h-10 w-10 rounded-xl bg-black dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity shadow-sm"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="text-[10px] text-center mt-3 text-gray-400 tracking-wide font-medium">
-                YURIY AI МОЖЕТ ОШИБАТЬСЯ • ПРОВЕРЯЙТЕ ВАЖНУЮ ИНФОРМАЦИЮ
-              </div>
-            </div>
-          </div>
-        </>
+        <AssistantChat
+          data={data}
+          isDirect={isDirect}
+          chatMessages={chatMessages}
+          isConnected={isConnected}
+          isThinking={isThinking}
+          streamingContent={streamingContent}
+          error={error}
+          clearError={clearError}
+          chatInput={chatInput}
+          setChatInput={setChatInput}
+          handleSend={handleSend}
+          scrollRef={scrollRef}
+        />
       )}
     </div>
   );

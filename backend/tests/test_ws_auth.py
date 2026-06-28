@@ -1,11 +1,13 @@
+from datetime import UTC
+
 import pytest
 import respx
+from conftest import INTAKE_URL, LAWYER_URL
 from httpx import Response
 from starlette.websockets import WebSocketDisconnect
 
-from conftest import INTAKE_URL, LAWYER_URL
-
 CASE_UUID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+
 
 class TestWebSocketAuth:
     def test_ws_no_token(self, client):
@@ -21,10 +23,13 @@ class TestWebSocketAuth:
         assert exc.value.code == 4001
 
     def test_ws_expired_token(self, client):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
+
         from jose import jwt
-        from auth import SECRET_KEY, ALGORITHM
-        payload = {"sub": "1", "exp": datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)}
+
+        from auth import ALGORITHM, SECRET_KEY
+
+        payload = {"sub": "1", "exp": datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)}
         token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
         with pytest.raises(WebSocketDisconnect) as exc:
             with client.websocket_connect(f"/ws/cases/{CASE_UUID}/chat?token={token}"):
@@ -33,10 +38,11 @@ class TestWebSocketAuth:
 
     @respx.mock
     def test_ws_foreign_case_forbidden(self, client, auth_headers, respx_mock):
-        respx_mock.get(f"{INTAKE_URL}/case/{CASE_UUID}").mock(return_value=Response(200, json={
-            "case": {"id": CASE_UUID, "lawyer_id": 999, "title": None, "summary": None},
-            "messages": []
-        }))
+        respx_mock.get(f"{INTAKE_URL}/case/{CASE_UUID}").mock(
+            return_value=Response(
+                200, json={"case": {"id": CASE_UUID, "lawyer_id": 999, "title": None, "summary": None}, "messages": []}
+            )
+        )
         token = auth_headers["Authorization"].split(" ")[1]
         with pytest.raises(WebSocketDisconnect) as exc:
             with client.websocket_connect(f"/ws/cases/{CASE_UUID}/chat?token={token}"):
@@ -45,11 +51,23 @@ class TestWebSocketAuth:
 
     @respx.mock
     def test_ws_own_case_works(self, client, auth_headers, respx_mock):
-        respx_mock.get(f"{INTAKE_URL}/case/{CASE_UUID}").mock(return_value=Response(200, json={
-            "case": {"id": CASE_UUID, "lawyer_id": 1, "case_file": "Dossier", "case_type": "direct", "title": None, "summary": None},
-            "messages": []
-        }))
-        sse_body = b"data: {\"token\": \"OK\"}\n\ndata: {\"done\": true}\n\n"
+        respx_mock.get(f"{INTAKE_URL}/case/{CASE_UUID}").mock(
+            return_value=Response(
+                200,
+                json={
+                    "case": {
+                        "id": CASE_UUID,
+                        "lawyer_id": 1,
+                        "case_file": "Dossier",
+                        "case_type": "direct",
+                        "title": None,
+                        "summary": None,
+                    },
+                    "messages": [],
+                },
+            )
+        )
+        sse_body = b'data: {"token": "OK"}\n\ndata: {"done": true}\n\n'
         respx_mock.post(f"{LAWYER_URL}/analyze").mock(return_value=Response(200, content=sse_body))
         token = auth_headers["Authorization"].split(" ")[1]
         with client.websocket_connect(f"/ws/cases/{CASE_UUID}/chat?token={token}") as ws:

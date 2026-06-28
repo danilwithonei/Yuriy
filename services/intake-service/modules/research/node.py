@@ -1,9 +1,13 @@
 import os
+
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.prompts import ChatPromptTemplate
+
 from core.llm import llm
 from core.state import AgentState
-from .prompts import RESEARCHER_PROMPT, QUERY_ANALYZER_PROMPT
+
+from .prompts import QUERY_ANALYZER_PROMPT, RESEARCHER_PROMPT
+
 
 def analyze_case_intake(transcript: str) -> str:
     """
@@ -13,6 +17,7 @@ def analyze_case_intake(transcript: str) -> str:
     chain = prompt | llm
     query = chain.invoke({"transcript": transcript})
     return query.content
+
 
 def perform_legal_research(query: str) -> str:
     """
@@ -28,11 +33,12 @@ def perform_legal_research(query: str) -> str:
         results = search.invoke(query)
     except Exception as e:
         return f"Ошибка при выполнении поиска: {str(e)}"
-    
+
     prompt = ChatPromptTemplate.from_template(RESEARCHER_PROMPT)
     chain = prompt | llm
     summary = chain.invoke({"results": results})
     return summary.content
+
 
 def research_node(state: AgentState):
     """

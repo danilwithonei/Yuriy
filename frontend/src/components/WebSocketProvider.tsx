@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useCaseStore } from '@/store/useCaseStore';
-import { useAuthStore } from '@/store/useAuthStore';
+
 import { WS_BASE_URL } from '@/lib/api';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useCaseStore } from '@/store/useCaseStore';
 
 export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const { addCase, updateCaseStatus, updateCaseMeta, removeCase, setCasePinned } = useCaseStore();

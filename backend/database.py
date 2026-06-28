@@ -1,5 +1,8 @@
 import os
-from yuriy_shared.database import create_engine as _make_engine, create_db_and_tables as _create_tables
+
+from yuriy_shared.database import create_db_and_tables as _create_tables
+from yuriy_shared.database import create_engine as _make_engine
+
 from core.logger import logger
 
 TESTING = os.getenv("TESTING", "").lower() in ("1", "true")

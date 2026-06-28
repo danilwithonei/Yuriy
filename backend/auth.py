@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta, timezone
-from jose import JWTError, jwt
-import bcrypt
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlmodel import Session, select
 import os
 import re
+from datetime import UTC, datetime, timedelta
 
-from database import engine
+import bcrypt
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from sqlmodel import Session, select
+
 from models import Lawyer
 
 security = HTTPBearer(auto_error=False)
@@ -16,18 +16,22 @@ SECRET_KEY = os.getenv("JWT_SECRET", "dev-secret-change-in-production")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))
 
-EMAIL_REGEX = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+EMAIL_REGEX = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
+
 def create_token(lawyer_id: int) -> str:
-    expire = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=EXPIRE_MINUTES)
+    expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=EXPIRE_MINUTES)
     to_encode = {"sub": str(lawyer_id), "exp": expire}
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
 
 def decode_token(token: str) -> int:
     try:
@@ -39,11 +43,13 @@ def decode_token(token: str) -> int:
     except (JWTError, TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+
 def get_lawyer_or_none(token: str) -> int | None:
     try:
         return decode_token(token)
     except HTTPException:
         return None
+
 
 async def get_optional_lawyer(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -52,6 +58,7 @@ async def get_optional_lawyer(
         return None
     return decode_token(credentials.credentials)
 
+
 async def get_current_lawyer(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> int:
@@ -59,8 +66,10 @@ async def get_current_lawyer(
         raise HTTPException(status_code=401, detail="Missing authorization header")
     return decode_token(credentials.credentials)
 
+
 def get_lawyer_by_email(session: Session, email: str) -> Lawyer | None:
     return session.exec(select(Lawyer).where(Lawyer.email == email)).first()
+
 
 def validate_email(email: str) -> str | None:
     if not re.match(EMAIL_REGEX, email):

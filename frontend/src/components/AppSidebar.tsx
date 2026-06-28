@@ -1,24 +1,24 @@
 'use client';
 
+import { Bot, FileText, LogOut, MoreHorizontal, Pin, SquarePen, Trash2 } from 'lucide-react';
+import { useParams,useRouter } from 'next/navigation';
 import * as React from 'react';
 import ReactDOM from 'react-dom';
-import { useCaseStore } from '@/store/useCaseStore';
-import { useAuthStore } from '@/store/useAuthStore';
-import { useRouter, useParams } from 'next/navigation';
-import { FileText, Bot, SquarePen, LogOut, User, MoreHorizontal, Pin, Trash2 } from 'lucide-react';
-import { NewChatModal } from '@/components/NewChatModal';
 
+import { NewChatModal } from '@/components/NewChatModal';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarFooter,
 } from '@/components/ui/sidebar';
+import { useAuthStore } from '@/store/useAuthStore';
+import { useCaseStore } from '@/store/useCaseStore';
 
 interface CaseMenuProps {
   caseId: string;

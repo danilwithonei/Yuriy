@@ -1,7 +1,9 @@
-import os, sys, pytest
+import os
 from contextlib import contextmanager
-from langchain_core.messages import AIMessage
 from typing import Any
+
+import pytest
+from langchain_core.messages import AIMessage
 
 os.environ.setdefault("TAVILY_DISABLED", "true")
 os.environ.setdefault("DASHSCOPE_API_KEY", "test-key")
@@ -9,11 +11,11 @@ os.environ.setdefault("LLM_TIMEOUT", "5")
 
 
 DEFAULT_COMPILER_RESPONSE = (
-    '{\n'
+    "{\n"
     '  "title": "Кража iPhone в кафе",\n'
     '  "summary": "Хищение телефона из общественного места, требуется адвокат.",\n'
     '  "case_file": "# Досье дела\\n\\n## Суть\\nКража.\\n\\n## Факты\\nТелефон пропал."\n'
-    '}'
+    "}"
 )
 
 
@@ -43,8 +45,10 @@ def change_llm_response():
     def _change(raw: str):
         def fake_invoke(messages, config=None, **kwargs) -> AIMessage:
             return AIMessage(content=raw)
+
         object.__setattr__(llm_module.llm, "invoke", fake_invoke)
         yield
+
     return _change
 
 
@@ -61,15 +65,13 @@ def transcript() -> str:
 
 @pytest.fixture
 def research_results() -> str:
-    return (
-        "Поиск по ключу отключён (TAVILY_DISABLED). "
-        "Использую только знания модели."
-    )
+    return "Поиск по ключу отключён (TAVILY_DISABLED). Использую только знания модели."
 
 
 @pytest.fixture
 def agent_state(transcript: str, research_results: str) -> dict[str, Any]:
-    from langchain_core.messages import HumanMessage, AIMessage
+    from langchain_core.messages import AIMessage, HumanMessage
+
     return {
         "messages": [
             HumanMessage(content="Здравствуйте! У меня украли телефон."),

@@ -1,6 +1,8 @@
 import os
+
 from sqlmodel import Session
-from yuriy_shared.database import create_engine as _make_engine, create_db_and_tables as _create_tables
+from yuriy_shared.database import create_db_and_tables as _create_tables
+from yuriy_shared.database import create_engine as _make_engine
 
 DATABASE_URL = os.getenv("LAWYER_DATABASE_URL", "sqlite:///./db/lawyer_database.db")
 engine = _make_engine(DATABASE_URL)

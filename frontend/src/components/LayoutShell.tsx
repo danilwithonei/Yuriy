@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { SidebarProvider, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import { useEffect } from 'react';
+
 import { AppSidebar } from '@/components/AppSidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { WebSocketProvider } from '@/components/WebSocketProvider';
 import { useAuthStore } from '@/store/useAuthStore';
 

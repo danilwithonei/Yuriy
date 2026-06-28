@@ -1,5 +1,7 @@
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, ANY
+
 from core.agent import AgentService
 
 pytestmark = pytest.mark.asyncio
@@ -20,7 +22,8 @@ class TestRunBackgroundResearch:
     @staticmethod
     def _make_state(**overrides) -> dict:
         """Базовая состоянии без research_results (чтобы не было short-circuit)."""
-        from langchain_core.messages import HumanMessage, AIMessage
+        from langchain_core.messages import AIMessage, HumanMessage
+
         state = {
             "messages": [
                 HumanMessage(content="Здравствуйте! У меня украли телефон."),
@@ -65,6 +68,7 @@ class TestRunBackgroundResearch:
     async def test_exception_in_research_returns_empty(self, monkeypatch):
         """Ошибка в research_node → возвращаем {}."""
         import core.agent as agent_module
+
         mock_research = MagicMock(side_effect=RuntimeError("Tavily crashed"))
         monkeypatch.setattr(agent_module, "research_node", mock_research)
 
@@ -84,7 +88,8 @@ class TestRunBackgroundResearch:
 
         # research_node возвращает успех
         monkeypatch.setattr(
-            research_module, "research_node",
+            research_module,
+            "research_node",
             lambda s: {"research_results": "some results"},
         )
         # compiler_node падает

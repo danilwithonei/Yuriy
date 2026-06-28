@@ -1,21 +1,22 @@
+import json
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from datetime import UTC, datetime
+
+import httpx
+import uvicorn
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from typing import Optional, List
-from datetime import datetime, timezone
-import os
-import json
-import httpx
-import uvicorn
+from yuriy_shared import run_migrations
 
-# Импорты из локальных модулей сервиса
-from models import User, Case, Message
-from database import engine, create_db_and_tables, get_session, DATABASE_URL
 from core.agent import AgentService
 from core.logger import logger
-from yuriy_shared import run_migrations
+from database import DATABASE_URL, create_db_and_tables, engine, get_session
+
+# Импорты из локальных модулей сервиса
+from models import Case, Message, User
 
 
 @asynccontextmanager
@@ -28,6 +29,19 @@ async def lifespan(app):
 
 
 app = FastAPI(title="Yuriy Agent Service", lifespan=lifespan)
+
+
+@app.get("/health")
+def health():
+    logger.info("Intake Service health check")
+    return {"message": "Intake Service is running"}
+
+
+@app.get("/")
+def read_root():
+    logger.info("Intake Service root check")
+    return {"message": "Intake Service is running"}
+
 
 async def _notify_gateway(case_id: str, status: str, title: str | None = None, summary: str | None = None):
     gateway_url = os.getenv("GATEWAY_URL", "http://backend:8000")
@@ -42,6 +56,7 @@ async def _notify_gateway(case_id: str, status: str, title: str | None = None, s
             logger.info(f"Gateway notified: case {case_id} -> {status}")
         except Exception as e:
             logger.warning(f"Failed to notify gateway for case {case_id}: {e}")
+
 
 async def run_research_task(case_id: str):
     """Фоновая задача для исследования."""
@@ -70,18 +85,21 @@ async def run_research_task(case_id: str):
             session.commit()
             await _notify_gateway(case_id, "ready", title=case.title, summary=case.summary)
 
+
 class CreateCaseRequest(BaseModel):
     case_type: str = "intake"
     source: str = "frontend"
     external_id: str = "lawyer_default"
-    lawyer_id: Optional[int] = None
+    lawyer_id: int | None = None
+
 
 class ChatRequest(BaseModel):
     external_id: str
     source: str
-    case_id: Optional[str] = None
+    case_id: str | None = None
     message: str
-    case_type: Optional[str] = None
+    case_type: str | None = None
+
 
 @app.post("/create-case")
 async def create_case(request: CreateCaseRequest, session: Session = Depends(get_session)):
@@ -95,7 +113,7 @@ async def create_case(request: CreateCaseRequest, session: Session = Depends(get
             external_id=request.external_id,
             source=request.source,
             username=f"{request.source}_{request.external_id}",
-            role="lawyer"
+            role="lawyer",
         )
         session.add(user)
         session.commit()
@@ -110,10 +128,13 @@ async def create_case(request: CreateCaseRequest, session: Session = Depends(get
 
     return {"case_id": case.id, "case_type": request.case_type, "lawyer_id": request.lawyer_id}
 
+
 @app.post("/chat")
 async def chat(request: ChatRequest, session: Session = Depends(get_session)):
     case_id = request.case_id
-    logger.info(f"Chat request received for external_id={request.external_id}, source={request.source}, case_id={case_id}")
+    logger.info(
+        f"Chat request received for external_id={request.external_id}, source={request.source}, case_id={case_id}"
+    )
 
     # Для direct-дела не запускаем граф, только сохраняем сообщение
     if case_id:
@@ -127,24 +148,19 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
             session.add(msg)
             session.commit()
             logger.info(f"Direct case {case_id}: message saved, graph skipped")
-            return {
-                "case_id": case_id,
-                "response": None,
-                "is_ready": False,
-                "status": "open"
-            }
-    
+            return {"case_id": case_id, "response": None, "is_ready": False, "status": "open"}
+
     # Логика получения/создания пользователя
     user = session.exec(
         select(User).where(User.external_id == request.external_id, User.source == request.source)
     ).first()
-    
+
     if not user:
         user = User(
-            external_id=request.external_id, 
-            source=request.source, 
-            username=f"{request.source}_{request.external_id}", 
-            role="client"
+            external_id=request.external_id,
+            source=request.source,
+            username=f"{request.source}_{request.external_id}",
+            role="client",
         )
         session.add(user)
         session.commit()
@@ -164,7 +180,7 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
         session.add(case)
         session.commit()
         logger.info(f"Created new case with id={case_id}")
-    
+
     # Сохраняем сообщение клиента
     msg = Message(case_id=case_id, sender_role="client", content=request.message, source=request.source)
     session.add(msg)
@@ -183,16 +199,22 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
                     full_response += token
                     stream_count += 1
                     if stream_count % 5 == 0:
-                        logger.info(f"Intake token #{stream_count} for case_id={case_id} (+{len(token)} chars, total {len(full_response)})")
+                        logger.info(
+                            f"Intake token #{stream_count} for case_id={case_id} (+{len(token)} chars, total {len(full_response)})"
+                        )
                     yield f"data: {json.dumps({'token': token})}\n\n"
                 elif kind == "result":
                     _, (output, is_ready) = event
-                    logger.info(f"Intake stream done for case_id={case_id}: {stream_count} events, {len(full_response)} chars, is_ready={is_ready}")
+                    logger.info(
+                        f"Intake stream done for case_id={case_id}: {stream_count} events, {len(full_response)} chars, is_ready={is_ready}"
+                    )
                     # Сохраняем ответ ИИ в отдельной сессии
                     ai_msg_content = output["messages"][-1].content
                     try:
                         with Session(engine) as save_session:
-                            ai_msg = Message(case_id=case_id, sender_role="ai_intake", content=ai_msg_content, source=request.source)
+                            ai_msg = Message(
+                                case_id=case_id, sender_role="ai_intake", content=ai_msg_content, source=request.source
+                            )
                             save_session.add(ai_msg)
                             save_session.commit()
                         logger.info(f"AI intake message saved for case_id={case_id}")
@@ -205,8 +227,10 @@ async def chat(request: ChatRequest, session: Session = Depends(get_session)):
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
+
 class ConfirmRequest(BaseModel):
     case_id: str
+
 
 @app.post("/confirm")
 async def confirm(request: ConfirmRequest, background_tasks: BackgroundTasks, session: Session = Depends(get_session)):
@@ -216,24 +240,26 @@ async def confirm(request: ConfirmRequest, background_tasks: BackgroundTasks, se
     if not case:
         logger.warning(f"Confirm failed: Case {case_id} not found")
         raise HTTPException(status_code=404, detail="Case not found")
-    
+
     await AgentService.confirm_and_resume(case_id)
     case.status = "researching"
     session.add(case)
     session.commit()
-    
+
     logger.info(f"Case {case_id} status updated to researching. Triggering background task.")
     background_tasks.add_task(run_research_task, case_id)
     await _notify_gateway(case_id, "researching", title=case.title, summary=case.summary)
     return {"status": "researching"}
 
-@app.get("/cases", response_model=List[Case])
-async def list_cases(lawyer_id: Optional[int] = None, session: Session = Depends(get_session)):
+
+@app.get("/cases", response_model=list[Case])
+async def list_cases(lawyer_id: int | None = None, session: Session = Depends(get_session)):
     logger.info(f"Intake Service: list_cases called, lawyer_id={lawyer_id}")
     query = select(Case).where(Case.deleted_at == None)
     if lawyer_id is not None:
         query = query.where(Case.lawyer_id == lawyer_id)
     return session.exec(query).all()
+
 
 @app.get("/case/{case_id}")
 async def get_case_status(case_id: str, session: Session = Depends(get_session)):
@@ -245,8 +271,10 @@ async def get_case_status(case_id: str, session: Session = Depends(get_session))
     messages = session.exec(select(Message).where(Message.case_id == case_id)).all()
     return {"case": case, "messages": messages}
 
+
 class PatchCasePinRequest(BaseModel):
     pinned: bool
+
 
 @app.patch("/case/{case_id}/pin")
 async def patch_case_pin(case_id: str, request: PatchCasePinRequest, session: Session = Depends(get_session)):
@@ -259,16 +287,18 @@ async def patch_case_pin(case_id: str, request: PatchCasePinRequest, session: Se
     session.commit()
     return {"case_id": case_id, "pinned": case.pinned}
 
+
 @app.delete("/case/{case_id}")
 async def delete_case(case_id: str, session: Session = Depends(get_session)):
     logger.info(f"Intake Service: soft delete case id={case_id}")
     case = session.get(Case, case_id)
     if not case or case.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Case not found")
-    case.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    case.deleted_at = datetime.now(UTC).replace(tzinfo=None)
     session.add(case)
     session.commit()
     return {"case_id": case_id, "deleted": True}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -1,6 +1,8 @@
 import os
-from sqlmodel import SQLModel, create_engine as _create_engine, Session
+
 from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel
+from sqlmodel import create_engine as _create_engine
 
 
 def create_engine(database_url: str | None = None, *, testing: bool = False):
@@ -21,4 +23,5 @@ def get_session(engine):
     def _get_session():
         with Session(engine) as session:
             yield session
+
     return _get_session

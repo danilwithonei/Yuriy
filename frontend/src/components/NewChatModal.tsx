@@ -1,11 +1,12 @@
 'use client';
 
-import * as React from 'react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
+import { Bot, FileText, Loader2,XIcon } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { FileText, Bot, XIcon, Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import * as React from 'react';
+
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { useCaseStore } from '@/store/useCaseStore';
 
 interface NewChatModalProps {

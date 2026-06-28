@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useAuthStore } from '@/store/useAuthStore';
+import { useCallback,useEffect, useRef, useState } from 'react';
+
 import { WS_BASE_URL } from '@/lib/api';
+import { useAuthStore } from '@/store/useAuthStore';
 
 export interface ChatMessage {
   role: 'client' | 'ai_intake' | 'ai_case' | 'lawyer';

@@ -1,8 +1,7 @@
 'use client';
 
-import React from 'react';
-import { Briefcase, Info, MessageSquare, ShieldCheck, Zap } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { MessageSquare, ShieldCheck, Zap } from 'lucide-react';
+
 
 export default function Dashboard() {
   return (

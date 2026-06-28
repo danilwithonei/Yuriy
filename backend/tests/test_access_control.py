@@ -1,24 +1,51 @@
-import pytest
 import respx
-from httpx import Response, ConnectTimeout
-
-from conftest import INTAKE_URL, LAWYER_URL
+from conftest import INTAKE_URL
+from httpx import ConnectTimeout, Response
 
 CASE_UUID = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
 FOREIGN_UUID = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb"
 MISSING_UUID = "cccccccc-cccc-4ccc-cccc-cccccccccccc"
 
+
 def _mock_case(respx_mock, case_id: str, lawyer_id: int):
-    respx_mock.get(f"{INTAKE_URL}/case/{case_id}").mock(return_value=Response(200, json={
-        "case": {"id": case_id, "client_id": 1, "lawyer_id": lawyer_id, "status": "open", "case_type": "direct", "title": None, "summary": None},
-        "messages": []
-    }))
+    respx_mock.get(f"{INTAKE_URL}/case/{case_id}").mock(
+        return_value=Response(
+            200,
+            json={
+                "case": {
+                    "id": case_id,
+                    "client_id": 1,
+                    "lawyer_id": lawyer_id,
+                    "status": "open",
+                    "case_type": "direct",
+                    "title": None,
+                    "summary": None,
+                },
+                "messages": [],
+            },
+        )
+    )
+
 
 def _mock_case_no_lawyer(respx_mock, case_id: str):
-    respx_mock.get(f"{INTAKE_URL}/case/{case_id}").mock(return_value=Response(200, json={
-        "case": {"id": case_id, "client_id": 1, "lawyer_id": None, "status": "open", "case_type": "direct", "title": None, "summary": None},
-        "messages": []
-    }))
+    respx_mock.get(f"{INTAKE_URL}/case/{case_id}").mock(
+        return_value=Response(
+            200,
+            json={
+                "case": {
+                    "id": case_id,
+                    "client_id": 1,
+                    "lawyer_id": None,
+                    "status": "open",
+                    "case_type": "direct",
+                    "title": None,
+                    "summary": None,
+                },
+                "messages": [],
+            },
+        )
+    )
+
 
 class TestOwnershipGet:
     @respx.mock
@@ -50,6 +77,7 @@ class TestOwnershipGet:
         respx_mock.get(f"{INTAKE_URL}/case/{CASE_UUID}").mock(side_effect=ConnectTimeout)
         resp = client.get(f"/cases/{CASE_UUID}", headers=auth_headers)
         assert resp.status_code == 502
+
 
 class TestOwnershipPost:
     @respx.mock

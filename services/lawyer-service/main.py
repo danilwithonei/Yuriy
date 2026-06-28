@@ -1,23 +1,28 @@
-from contextlib import asynccontextmanager
 import json
-from fastapi import FastAPI, HTTPException, Depends
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from datetime import datetime, timezone
+
 from core.llm import get_llm
 from core.logger import logger
-from langchain_core.prompts import ChatPromptTemplate
+
 try:
     from langchain_tavily import TavilySearchResults
 except ImportError:
     from langchain_community.tools.tavily_search import TavilySearchResults
-from prompts import ASSISTANT_PROMPT
-from models import Message, Case
-from database import create_db_and_tables, get_session, engine, DATABASE_URL
 import os
+
 import uvicorn
 from yuriy_shared import run_migrations
+
+from database import DATABASE_URL, create_db_and_tables, engine, get_session
+from models import Case, Message
+from prompts import ASSISTANT_PROMPT
 
 
 @asynccontextmanager
@@ -31,17 +36,21 @@ async def lifespan(app):
 
 app = FastAPI(title="Yuriy Lawyer Assistant Service", lifespan=lifespan)
 
+
 class AssistRequest(BaseModel):
     case_id: str
     case_file: str
-    history: str # История из Intake Service (клиент-агент)
+    history: str  # История из Intake Service (клиент-агент)
     query: str
     search_web: bool = False
 
+
 @app.get("/")
+@app.get("/health")
 def read_root():
     logger.info("Lawyer Assistant Health check")
     return {"message": "Lawyer Assistant Service is running"}
+
 
 @app.post("/analyze")
 async def analyze_case(request: AssistRequest, session: Session = Depends(get_session)):
@@ -55,14 +64,14 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
     session.commit()
 
     # 2. Получаем историю предыдущих диалогов Юрист-Ассистент из локальной БД
-    lawyer_ai_messages = session.exec(
-        select(Message).where(Message.case_id == request.case_id)
-    ).all()
-    
+    lawyer_ai_messages = session.exec(select(Message).where(Message.case_id == request.case_id)).all()
+
     # Формируем полный контекст для LLM
     lawyer_history_str = "\n".join([f"{m.sender_role}: {m.content}" for m in lawyer_ai_messages[:-1]])
-    
-    full_context_history = f"--- КЛИЕНТ-ИНТЕРВЬЮ ---\n{request.history}\n\n--- ДИАЛОГ С ЮРИСТОМ ---\n{lawyer_history_str}"
+
+    full_context_history = (
+        f"--- КЛИЕНТ-ИНТЕРВЬЮ ---\n{request.history}\n\n--- ДИАЛОГ С ЮРИСТОМ ---\n{lawyer_history_str}"
+    )
 
     search_results = ""
     if request.search_web:
@@ -71,7 +80,7 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
             search = TavilySearchResults(max_results=5)
             raw_results = search.invoke(request.query)
             search_results = "\n\n".join(
-                [f"**{r.get('title','')}**\n{r.get('content','')}\n[{r.get('url','')}]" for r in raw_results]
+                [f"**{r.get('title', '')}**\n{r.get('content', '')}\n[{r.get('url', '')}]" for r in raw_results]
             )
             logger.info(f"Web search completed for case_id={request.case_id}, results={len(raw_results)}")
         except Exception as e:
@@ -91,27 +100,35 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
         full_response = ""
         chunk_index = 0
         try:
-            async for chunk in chain.astream({
-                "case_file": request.case_file or "Не указано.",
-                "history": full_context_history,
-                "query": request.query,
-                "search_results_section": search_results_section
-            }):
+            async for chunk in chain.astream(
+                {
+                    "case_file": request.case_file or "Не указано.",
+                    "history": full_context_history,
+                    "query": request.query,
+                    "search_results_section": search_results_section,
+                }
+            ):
                 if chunk.content:
                     full_response += chunk.content
                     chunk_index += 1
                     if chunk_index % 5 == 0:
-                        logger.info(f"Stream chunk #{chunk_index} for case_id={request.case_id} (+{len(chunk.content)} chars, total {len(full_response)})")
+                        logger.info(
+                            f"Stream chunk #{chunk_index} for case_id={request.case_id} (+{len(chunk.content)} chars, total {len(full_response)})"
+                        )
                     yield f"data: {json.dumps({'token': chunk.content})}\n\n"
         except Exception as e:
             logger.error(f"Streaming failed for case_id={request.case_id} at chunk #{chunk_index}: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         finally:
-            logger.info(f"Stream finished for case_id={request.case_id}: {chunk_index} chunks, {len(full_response)} chars total")
+            logger.info(
+                f"Stream finished for case_id={request.case_id}: {chunk_index} chunks, {len(full_response)} chars total"
+            )
             # 3. Сохраняем ответ ассистента после завершения стрима
             try:
                 with Session(engine) as save_session:
-                    ai_msg = Message(case_id=request.case_id, sender_role="ai_case", content=full_response, source="frontend")
+                    ai_msg = Message(
+                        case_id=request.case_id, sender_role="ai_case", content=full_response, source="frontend"
+                    )
                     save_session.add(ai_msg)
                     save_session.commit()
                 logger.info(f"AI message saved for case_id={request.case_id}")
@@ -121,6 +138,7 @@ async def analyze_case(request: AssistRequest, session: Session = Depends(get_se
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
+
 @app.get("/messages/{case_id}")
 async def get_messages(case_id: str, session: Session = Depends(get_session)):
     """Возвращает историю переписки юриста с ассистентом."""
@@ -128,8 +146,10 @@ async def get_messages(case_id: str, session: Session = Depends(get_session)):
     messages = session.exec(select(Message).where(Message.case_id == case_id)).all()
     return messages
 
+
 class PatchCasePinRequest(BaseModel):
     pinned: bool
+
 
 @app.patch("/case/{case_id}/pin")
 async def patch_case_pin(case_id: str, request: PatchCasePinRequest, session: Session = Depends(get_session)):
@@ -142,16 +162,18 @@ async def patch_case_pin(case_id: str, request: PatchCasePinRequest, session: Se
     session.commit()
     return {"case_id": case_id, "pinned": case.pinned}
 
+
 @app.delete("/case/{case_id}")
 async def delete_case(case_id: str, session: Session = Depends(get_session)):
     logger.info(f"Lawyer Service: soft delete case id={case_id}")
     case = session.get(Case, case_id)
     if not case or case.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Case not found")
-    case.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    case.deleted_at = datetime.now(UTC).replace(tzinfo=None)
     session.add(case)
     session.commit()
     return {"case_id": case_id, "deleted": True}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8002)

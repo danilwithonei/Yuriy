@@ -1,13 +1,14 @@
-from typing import List, Dict
 from fastapi import WebSocket
+
 from core.logger import logger
+
 
 class ConnectionManager:
     def __init__(self):
         # Глобальные соединения для дашборда (список дел)
-        self.dashboard_connections: List[WebSocket] = []
+        self.dashboard_connections: list[WebSocket] = []
         # Соединения для конкретных чатов дел
-        self.case_connections: Dict[str, List[WebSocket]] = {}
+        self.case_connections: dict[str, list[WebSocket]] = {}
 
     async def connect_dashboard(self, websocket: WebSocket):
         await websocket.accept()
@@ -58,5 +59,6 @@ class ConnectionManager:
                     await connection.send_json(message)
                 except Exception as e:
                     logger.warning(f"Send case message failed for case_id={case_id}: {e}")
+
 
 manager = ConnectionManager()

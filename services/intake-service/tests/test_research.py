@@ -1,6 +1,9 @@
-import os, pytest
+import os
 from unittest.mock import MagicMock, patch
-from modules.research.node import research_node, perform_legal_research, analyze_case_intake
+
+import pytest
+
+from modules.research.node import analyze_case_intake, perform_legal_research, research_node
 
 
 class TestResearchNode:
@@ -17,10 +20,12 @@ class TestResearchNode:
 
     def test_research_node_with_empty_messages(self):
         """Пустой список сообщений — всё равно работает."""
-        result = research_node({
-            "messages": [],
-            "case_id": "test",
-        })
+        result = research_node(
+            {
+                "messages": [],
+                "case_id": "test",
+            }
+        )
         assert "research_results" in result
 
     def test_research_node_builds_transcript(self, agent_state):

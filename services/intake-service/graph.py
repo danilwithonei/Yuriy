@@ -1,10 +1,11 @@
-from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
 
 from core.state import AgentState
+from modules.compiler.node import compiler_node
 from modules.intake.node import intake_node
 from modules.research.node import research_node
-from modules.compiler.node import compiler_node
+
 
 def wait_for_input(state: AgentState):
     """
@@ -12,14 +13,16 @@ def wait_for_input(state: AgentState):
     """
     return {}
 
+
 def should_continue(state: AgentState):
     """
-    Маршрутизация: если ИИ готов — идем к исследованию, 
+    Маршрутизация: если ИИ готов — идем к исследованию,
     если нет — идем ждать входные данные.
     """
     if state.get("is_ready", False):
         return "research"
     return "wait_for_input"
+
 
 # Настройка графа
 workflow = StateGraph(AgentState)
@@ -32,14 +35,7 @@ workflow.add_node("compiler", compiler_node)
 
 # Определение связей
 workflow.add_edge(START, "intake")
-workflow.add_conditional_edges(
-    "intake", 
-    should_continue, 
-    {
-        "research": "research", 
-        "wait_for_input": "wait_for_input"
-    }
-)
+workflow.add_conditional_edges("intake", should_continue, {"research": "research", "wait_for_input": "wait_for_input"})
 
 # Из ожидания ввода всегда возвращаемся в intake
 workflow.add_edge("wait_for_input", "intake")
@@ -49,7 +45,4 @@ workflow.add_edge("compiler", END)
 
 # Компиляция: теперь прерываемся и перед исследованием, и перед ожиданием ввода
 memory = MemorySaver()
-app_graph = workflow.compile(
-    checkpointer=memory, 
-    interrupt_before=["research", "wait_for_input"]
-)
+app_graph = workflow.compile(checkpointer=memory, interrupt_before=["research", "wait_for_input"])

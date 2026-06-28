@@ -1,7 +1,10 @@
-from langchain_core.messages import SystemMessage, AIMessage
-from .prompts import INTAKE_SYSTEM_PROMPT
+from langchain_core.messages import AIMessage, SystemMessage
+
 from core.llm import llm
 from core.state import AgentState
+
+from .prompts import INTAKE_SYSTEM_PROMPT
+
 
 async def intake_node(state: AgentState):
     system_msg = SystemMessage(content=INTAKE_SYSTEM_PROMPT)
@@ -22,7 +25,4 @@ async def intake_node(state: AgentState):
             clean_lines.append(line)
 
     answer = "\n".join(clean_lines)
-    return {
-        "messages": [AIMessage(content=answer)],
-        "is_ready": is_ready
-    }
+    return {"messages": [AIMessage(content=answer)], "is_ready": is_ready}

@@ -1,15 +1,14 @@
 import os
-from sqlmodel import create_engine
+
 from sqlalchemy import inspect
+from sqlmodel import create_engine
 
 
 def run_migrations(database_url: str, alembic_ini_path: str | None = None):
-    from alembic.config import Config
     from alembic import command
+    from alembic.config import Config
 
-    ini_path = alembic_ini_path or os.path.join(
-        os.path.dirname(__file__), "..", "alembic.ini"
-    )
+    ini_path = alembic_ini_path or os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
     cfg = Config(ini_path)
     cfg.set_main_option("sqlalchemy.url", database_url)
 
